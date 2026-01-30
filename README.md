@@ -7,7 +7,9 @@
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
 
 > **Course:** BSAI301 Software Engineering  
-> **Team:** [你的队伍名称/Team Name]
+> **Team:** team-10
+
+
 
 ## 📖 Project Overview (项目概览)
 
