@@ -30,14 +30,19 @@
 
 本项目采用前后端分离架构，并引入消息队列以解耦耗时的 AI 推理任务。
 
-```mermaid
 graph TD
-    User([User]) -->|Browser| Client[Frontend (React + Tailwind)]
-    Client -->|REST API| API[Backend (FastAPI)]
+    User([User]) -->|Browser| Client["Frontend (React + Tailwind)"]
+    Client -->|REST API| API["Backend (FastAPI)"]
     
     subgraph Infrastructure
         API -->|Read/Write| DB[(PostgreSQL)]
         API -->|Enqueue Task| Redis[(Redis Broker)]
+    end
+    
+    subgraph Async Worker
+        Redis -->|Consume Task| Worker[Celery Worker]
+        Worker -->|Call LLM| OpenAI[OpenAI API]
+        Worker -->|Save Result| DB
     end
     
     subgraph Async Worker
