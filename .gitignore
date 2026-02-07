@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.env
+__pycache__/
+*.pyc
+uploads/
+*.egg-info/
+.venv/
+venv/
+nul
+*.db
+*.sqlite3
