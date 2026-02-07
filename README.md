@@ -45,42 +45,63 @@ graph TD
     User([User]) -->|Browser| Client["Frontend<br/>(React 19 + Tailwind CSS v4 + Recharts)"]
     Client -->|REST API| API["Backend (FastAPI)"]
 
+    DB[(PostgreSQL 16)]
+    Redis[(Redis 7 Broker)]
+    Groq["Groq LLaMA 3.3 70B"]
+
     subgraph Security["Security Layer"]
-        API --> RateLimit["SlowAPI Rate Limiting"]
-        API --> FileValid["File Magic Validation"]
-        API --> Sanitize["Input Sanitization"]
-        API --> JWT["JWT Authentication"]
+        RateLimit["SlowAPI Rate Limiting"]
+        FileValid["File Magic Validation"]
+        Sanitize["Input Sanitization"]
+        JWT["JWT Authentication"]
     end
 
-    subgraph Core["Core Services"]
-        API -->|Read/Write| DB[(PostgreSQL 16)]
-        API -->|Enqueue Task| Redis[(Redis 7 Broker)]
-    end
+    API --> RateLimit
+    API --> FileValid
+    API --> Sanitize
+    API --> JWT
+
+    API -->|Read/Write| DB
+    API -->|Enqueue Task| Redis
 
     subgraph AsyncWorker["Async Worker"]
-        Redis -->|Consume Task| Worker[Celery Worker]
-        Worker -->|PDF/PPTX/DOCX/OCR| Extract[Text Extraction]
-        Worker -->|Audio| Whisper["Groq Whisper Large v3"]
-        Worker -->|Summary/Concepts/Flashcards| Groq["Groq LLaMA 3.3 70B"]
-        Worker -->|Save Result| DB
+        Worker[Celery Worker]
+        Extract[Text Extraction]
+        Whisper["Groq Whisper Large v3"]
     end
+
+    Redis -->|Consume Task| Worker
+    Worker -->|PDF/PPTX/DOCX/OCR| Extract
+    Worker -->|Audio| Whisper
+    Worker -->|Summary/Concepts/Flashcards| Groq
+    Worker -->|Save Result| DB
 
     subgraph AIFeatures["Real-time AI Features"]
-        API -->|Multi-turn Chat| Groq
-        API -->|Knowledge Graph| Groq
-        API -->|Learning Path| Groq
-        API -->|SM-2 Spaced Repetition| DB
+        Chat["Multi-turn Chat"]
+        KGraph["Knowledge Graph"]
+        LPath["Learning Path"]
+        SM2["SM-2 Spaced Repetition"]
     end
+
+    API --> Chat --> Groq
+    API --> KGraph --> Groq
+    API --> LPath --> Groq
+    API --> SM2 --> DB
 
     subgraph Collaboration["Collaboration"]
-        API -->|Share/Comment/Groups| DB
+        Share["Share / Comment / Groups"]
     end
 
+    API --> Share --> DB
+
     subgraph Deploy["Production Deployment"]
-        Nginx["Nginx Reverse Proxy"] --> API
-        Nginx --> Client
-        Docker["Docker Compose"] --> Nginx
+        Nginx["Nginx Reverse Proxy"]
+        Docker["Docker Compose"]
     end
+
+    Docker --> Nginx
+    Nginx --> API
+    Nginx --> Client
 ```
 
 ---
