@@ -42,28 +42,44 @@
 
 ```mermaid
 graph TD
-    User([User]) -->|Browser| Client["Frontend (React 19 + Tailwind CSS v4)"]
-    Client -->|REST API| Nginx["Nginx Reverse Proxy"]
-    Nginx -->|/api/*| API["Backend (FastAPI)"]
-    Nginx -->|/*| Client
+    User([User]) -->|Browser| Client["Frontend<br/>(React 19 + Tailwind CSS v4 + Recharts)"]
+    Client -->|REST API| API["Backend (FastAPI)"]
 
-    subgraph Infrastructure
-        API -->|Read/Write| DB[(PostgreSQL 16)]
-        API -->|Enqueue Task| Redis[(Redis 7 Broker)]
-        API -->|WebSocket| WS[Real-time Notifications]
+    subgraph Security["Security Layer"]
+        API --> RateLimit["SlowAPI Rate Limiting"]
+        API --> FileValid["File Magic Validation"]
+        API --> Sanitize["Input Sanitization"]
+        API --> JWT["JWT Authentication"]
     end
 
-    subgraph Async Worker
+    subgraph Core["Core Services"]
+        API -->|Read/Write| DB[(PostgreSQL 16)]
+        API -->|Enqueue Task| Redis[(Redis 7 Broker)]
+    end
+
+    subgraph AsyncWorker["Async Worker"]
         Redis -->|Consume Task| Worker[Celery Worker]
-        Worker -->|Text Generation| Groq["Groq API (LLaMA 3.3 70B)"]
-        Worker -->|Audio Transcription| Whisper["Groq API (Whisper Large v3)"]
+        Worker -->|PDF/PPTX/DOCX/OCR| Extract[Text Extraction]
+        Worker -->|Audio| Whisper["Groq Whisper Large v3"]
+        Worker -->|Summary/Concepts/Flashcards| Groq["Groq LLaMA 3.3 70B"]
         Worker -->|Save Result| DB
     end
 
-    subgraph AI Features
-        API -->|Chat| Groq
+    subgraph AIFeatures["Real-time AI Features"]
+        API -->|Multi-turn Chat| Groq
         API -->|Knowledge Graph| Groq
         API -->|Learning Path| Groq
+        API -->|SM-2 Spaced Repetition| DB
+    end
+
+    subgraph Collaboration["Collaboration"]
+        API -->|Share/Comment/Groups| DB
+    end
+
+    subgraph Deploy["Production Deployment"]
+        Nginx["Nginx Reverse Proxy"] --> API
+        Nginx --> Client
+        Docker["Docker Compose"] --> Nginx
     end
 ```
 
