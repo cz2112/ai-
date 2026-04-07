@@ -1,19 +1,15 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, Table
+# backend/app/models/tag.py
+from sqlalchemy import Column, Integer, String, ForeignKey
 from sqlalchemy.orm import relationship
 from app.core.database import Base
-
-upload_tags = Table(
-    "upload_tags", Base.metadata,
-    Column("upload_id", Integer, ForeignKey("uploads.id", ondelete="CASCADE"), primary_key=True),
-    Column("tag_id", Integer, ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True),
-)
 
 
 class Tag(Base):
     __tablename__ = "tags"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     name = Column(String(50), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
 
-    uploads = relationship("Upload", secondary=upload_tags, back_populates="tags")
+    # 关系
+    user = relationship("User", back_populates="tags")
