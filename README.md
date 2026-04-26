@@ -94,11 +94,11 @@ Major runtime components in the current codebase are:
 - **Media AI**: GLM for audio transcription, image OCR, PDF OCR, and video extraction
 - **Reverse Proxy**: Nginx in the production-style Docker stack
 
-### Architecture Diagram
+### Platform Architecture
 
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {
-  'fontSize': '24px',
+  'fontSize': '20px',
   'fontFamily': 'Segoe UI, Arial, sans-serif',
   'textColor': '#111827',
   'primaryTextColor': '#111827',
@@ -108,85 +108,157 @@ Major runtime components in the current codebase are:
   'edgeLabelBackground': '#ffffff'
 }}}%%
 flowchart TB
-    User["User / 用户"]
-    Frontend["Frontend<br/>React + Vite + Tailwind"]
-    Nginx["Nginx<br/>static frontend + API proxy"]
-    Backend["Backend<br/>FastAPI"]
-
-    User --> Frontend --> Nginx --> Backend
-
-    subgraph BackendModules["Backend modules / 后端模块"]
-        direction LR
-        Routes["Routes<br/>auth | uploads | share | chat | admin"]
-        Security["Security<br/>JWT | rate limit | validation | sanitize"]
-        Services["Services<br/>upload access | AI routing | email"]
+    subgraph Client["Client Experience"]
+        direction TB
+        User["Student / Instructor / Admin"]
+        UI["React SPA<br/>Dashboard | Upload Detail | Statistics | Shared | Groups | Admin"]
+        ClientRuntime["React Router<br/>AuthContext | ThemeContext | Axios API client"]
+        User --> UI --> ClientRuntime
     end
 
-    subgraph Async["Async processing / 异步处理"]
-        direction LR
-        Redis["Redis"]
+    subgraph Delivery["Web Delivery"]
+        direction TB
+        Nginx["Nginx<br/>Static frontend + /api reverse proxy"]
+    end
+
+    subgraph Application["Application Backend"]
+        direction TB
+        FastAPI["FastAPI application"]
+        APIs["API modules<br/>Auth | Uploads | Share | Chat | Admin"]
+        Controls["Cross-cutting controls<br/>JWT auth | rate limits | file validation | sanitization"]
+        Domain["Domain services<br/>Upload access | AI service | quotas | stats | email"]
+        FastAPI --> APIs
+        APIs --> Controls
+        APIs --> Domain
+    end
+
+    subgraph Async["Background Processing"]
+        direction TB
+        Redis["Redis broker"]
         Worker["Celery worker"]
-        Extract["Extract / OCR / ASR / video"]
-        Generate["Summary / concepts / flashcards"]
+        Pipeline["Processing pipeline<br/>text extraction | OCR | ASR | video analysis | language detection"]
+        Assets["Study asset generation<br/>summary | key concepts | flashcards"]
+        Redis --> Worker --> Pipeline --> Assets
     end
 
-    subgraph Data["Persistence / 数据层"]
-        direction LR
-        DB[("PostgreSQL<br/>users | uploads | courses | sharing | study assets")]
-        Storage["Upload storage<br/>backend/uploads"]
+    subgraph Persistence["Persistence and Storage"]
+        direction TB
+        DB[("PostgreSQL<br/>users | uploads | courses | shares | groups | comments | conversations | study assets")]
+        Files["Upload file storage<br/>backend/uploads or shared Docker volume"]
     end
 
-    subgraph AI["AI providers / 模型服务"]
-        direction LR
-        DeepSeek["DeepSeek<br/>chat | summary | concepts | flashcards<br/>graph | learning path"]
-        GLM["GLM<br/>audio ASR | image OCR | PDF OCR | video"]
+    subgraph Providers["External AI Providers"]
+        direction TB
+        DeepSeek["DeepSeek<br/>chat | summary | concepts | flashcards | knowledge graph | learning path"]
+        GLM["GLM<br/>audio ASR | image OCR | PDF OCR | video understanding"]
+        Fallbacks["Local processing fallbacks<br/>PyPDF2 | python-docx | python-pptx | pytesseract | ffmpeg"]
     end
 
-    Backend --> Routes
-    Backend --> Security
-    Backend --> Services
+    UI -->|HTTPS| Nginx
+    Nginx -->|REST API| FastAPI
+    FastAPI -->|metadata and state| DB
+    FastAPI -->|upload files| Files
+    FastAPI -->|enqueue background jobs| Redis
+    Domain -->|text-generation requests| DeepSeek
+    Worker -->|read source files| Files
+    Worker -->|status and generated results| DB
+    Pipeline -->|multimodal extraction| GLM
+    Pipeline -->|document and image fallback paths| Fallbacks
+    Assets -->|LLM generation| DeepSeek
 
-    Backend --> DB
-    Backend --> Storage
-    Backend --> Redis
-    Redis --> Worker --> Extract --> Generate
-    Worker --> Storage
-    Worker --> DB
-    Extract --> GLM
-    Generate --> DeepSeek
-    Services --> DeepSeek
+    classDef client fill:#e0f2fe,stroke:#0369a1,stroke-width:1.5px,color:#111827,font-size:18px;
+    classDef edge fill:#f3f4f6,stroke:#4b5563,stroke-width:1.5px,color:#111827,font-size:18px;
+    classDef backend fill:#dcfce7,stroke:#15803d,stroke-width:1.5px,color:#111827,font-size:18px;
+    classDef async fill:#f3e8ff,stroke:#7e22ce,stroke-width:1.5px,color:#111827,font-size:18px;
+    classDef data fill:#dbeafe,stroke:#1d4ed8,stroke-width:1.5px,color:#111827,font-size:18px;
+    classDef ai fill:#fef3c7,stroke:#b45309,stroke-width:1.5px,color:#111827,font-size:18px;
 
-    classDef client fill:#e0f2fe,stroke:#0369a1,stroke-width:1.5px,color:#111827,font-size:22px;
-    classDef edge fill:#f3f4f6,stroke:#4b5563,stroke-width:1.5px,color:#111827,font-size:22px;
-    classDef backend fill:#dcfce7,stroke:#15803d,stroke-width:1.5px,color:#111827,font-size:22px;
-    classDef async fill:#f3e8ff,stroke:#7e22ce,stroke-width:1.5px,color:#111827,font-size:22px;
-    classDef data fill:#dbeafe,stroke:#1d4ed8,stroke-width:1.5px,color:#111827,font-size:22px;
-    classDef ai fill:#fef3c7,stroke:#b45309,stroke-width:1.5px,color:#111827,font-size:22px;
-
-    class User,Frontend client;
+    class User,UI,ClientRuntime client;
     class Nginx edge;
-    class Backend,Routes,Security,Services backend;
-    class Redis,Worker,Extract,Generate async;
-    class DB,Storage data;
-    class DeepSeek,GLM ai;
+    class FastAPI,APIs,Controls,Domain backend;
+    class Redis,Worker,Pipeline,Assets async;
+    class DB,Files data;
+    class DeepSeek,GLM,Fallbacks ai;
 
-    style BackendModules fill:#f8fafc,stroke:#94a3b8,stroke-width:1px,color:#111827;
+    style Client fill:#f8fafc,stroke:#94a3b8,stroke-width:1px,color:#111827;
+    style Delivery fill:#f8fafc,stroke:#94a3b8,stroke-width:1px,color:#111827;
+    style Application fill:#f8fafc,stroke:#94a3b8,stroke-width:1px,color:#111827;
     style Async fill:#f8fafc,stroke:#94a3b8,stroke-width:1px,color:#111827;
-    style Data fill:#f8fafc,stroke:#94a3b8,stroke-width:1px,color:#111827;
-    style AI fill:#f8fafc,stroke:#94a3b8,stroke-width:1px,color:#111827;
+    style Persistence fill:#f8fafc,stroke:#94a3b8,stroke-width:1px,color:#111827;
+    style Providers fill:#f8fafc,stroke:#94a3b8,stroke-width:1px,color:#111827;
 ```
 
 **Architecture Layers:**
 
 | Layer | Components | Description |
 |-------|-----------|-------------|
-| **Client** | User + Browser | Web browser interface |
-| **Frontend** | React 18 + Vite + Tailwind + Router + Contexts | Single-page application with authentication and theming |
-| **Gateway** | Nginx | Reverse proxy for production deployment |
-| **Backend** | FastAPI 0.115 | REST API server with 5 route modules, 4 security components, 3 business services |
-| **Async Processing** | Redis + Celery Worker | Message queue and background task processing (4 task types) |
-| **Data** | PostgreSQL 16 + File Storage | Relational database and file system storage |
-| **AI Services** | DeepSeek + GLM | Text generation (6 capabilities) and multimodal processing (4 capabilities) |
+| **Client** | Browser session, route navigation, authenticated user flows | Entry point for upload, review, sharing, analytics, and admin workflows |
+| **Frontend** | React, Vite, Tailwind, React Router, AuthContext, ThemeContext, Axios client | Single-page application that manages UI state, authentication, polling, and API interaction |
+| **Gateway** | Nginx | Serves the frontend in the production-style stack and proxies `/api` traffic to FastAPI |
+| **Application Backend** | FastAPI, route modules, validation, access control, orchestration logic | Handles authentication, upload lifecycle, sharing, comments, groups, chat, admin endpoints, quotas, exports, and statistics |
+| **Async Processing** | Redis broker, Celery worker, `process_upload` pipeline | Runs long-lived extraction and AI generation work outside the request/response path |
+| **Persistence** | PostgreSQL, local/shared upload storage | Stores relational records plus uploaded source files used by the backend and worker |
+| **AI Integration** | DeepSeek, GLM, local fallback extractors | Splits text-generation tasks from multimodal ingestion while preserving fallback behavior for PDFs and images |
+
+### Upload and AI Processing Pipeline
+
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {
+  'fontSize': '18px',
+  'fontFamily': 'Segoe UI, Arial, sans-serif',
+  'textColor': '#111827',
+  'primaryTextColor': '#111827',
+  'secondaryTextColor': '#111827',
+  'tertiaryTextColor': '#111827',
+  'lineColor': '#475569',
+  'signalColor': '#475569',
+  'signalTextColor': '#111827',
+  'activationBorderColor': '#475569',
+  'activationBkgColor': '#e2e8f0',
+  'sequenceNumberColor': '#111827',
+  'noteBkgColor': '#f8fafc',
+  'noteBorderColor': '#94a3b8'
+}}}%%
+sequenceDiagram
+    autonumber
+    participant U as User
+    participant FE as React Frontend
+    participant API as FastAPI
+    participant FS as File Storage
+    participant DB as PostgreSQL
+    participant Q as Redis
+    participant W as Celery Worker
+    participant GLM as GLM
+    participant DS as DeepSeek
+
+    U->>FE: Select file and submit upload
+    FE->>API: POST /api/uploads or /api/uploads/batch
+    API->>API: Authenticate user and validate extension, size, and file signature
+    API->>FS: Save uploaded source file
+    API->>DB: Create upload record (Pending)
+    API->>Q: Enqueue process_upload
+    API-->>FE: Return upload metadata and current status
+
+    Q->>W: Dispatch background job
+    W->>DB: Mark upload as Processing
+    W->>FS: Read source file
+
+    alt Audio, image, PDF OCR, or video path
+        W->>GLM: Request ASR, OCR, or video understanding
+        GLM-->>W: Return extracted content
+    else Office document or fallback path
+        W->>W: Run local extraction utilities
+    end
+
+    W->>W: Detect language
+    W->>DS: Generate summary
+    W->>DS: Generate key concepts
+    W->>DS: Generate flashcards
+    W->>DB: Store transcript and study assets
+    W->>DB: Mark upload as Completed or Failed
+    FE->>API: Poll upload list/detail endpoints
+    API-->>FE: Return updated status and generated results
+```
 
 ### Processing Flow
 
