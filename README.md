@@ -98,7 +98,7 @@ Major runtime components in the current codebase are:
 
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {
-  'fontSize': '20px',
+  'fontSize': '24px',
   'fontFamily': 'Segoe UI, Arial, sans-serif',
   'textColor': '#111827',
   'primaryTextColor': '#111827',
@@ -111,22 +111,22 @@ flowchart TB
     subgraph Client["Client Experience"]
         direction TB
         User["Student / Instructor / Admin"]
-        UI["React SPA<br/>Dashboard | Upload Detail | Statistics | Shared | Groups | Admin"]
-        ClientRuntime["React Router<br/>AuthContext | ThemeContext | Axios API client"]
+        UI["React SPA"]
+        ClientRuntime["Router + Contexts + API Client"]
         User --> UI --> ClientRuntime
     end
 
     subgraph Delivery["Web Delivery"]
         direction TB
-        Nginx["Nginx<br/>Static frontend + /api reverse proxy"]
+        Nginx["Nginx"]
     end
 
     subgraph Application["Application Backend"]
         direction TB
-        FastAPI["FastAPI application"]
-        APIs["API modules<br/>Auth | Uploads | Share | Chat | Admin"]
-        Controls["Cross-cutting controls<br/>JWT auth | rate limits | file validation | sanitization"]
-        Domain["Domain services<br/>Upload access | AI service | quotas | stats | email"]
+        FastAPI["FastAPI"]
+        APIs["API Modules"]
+        Controls["Security + Validation"]
+        Domain["Domain Services"]
         FastAPI --> APIs
         APIs --> Controls
         APIs --> Domain
@@ -134,44 +134,44 @@ flowchart TB
 
     subgraph Async["Background Processing"]
         direction TB
-        Redis["Redis broker"]
-        Worker["Celery worker"]
-        Pipeline["Processing pipeline<br/>text extraction | OCR | ASR | video analysis | language detection"]
-        Assets["Study asset generation<br/>summary | key concepts | flashcards"]
+        Redis["Redis"]
+        Worker["Celery Worker"]
+        Pipeline["Extraction Pipeline"]
+        Assets["Asset Generation"]
         Redis --> Worker --> Pipeline --> Assets
     end
 
     subgraph Persistence["Persistence and Storage"]
         direction TB
-        DB[("PostgreSQL<br/>users | uploads | courses | shares | groups | comments | conversations | study assets")]
-        Files["Upload file storage<br/>backend/uploads or shared Docker volume"]
+        DB[("PostgreSQL")]
+        Files["Upload Storage"]
     end
 
     subgraph Providers["External AI Providers"]
         direction TB
-        DeepSeek["DeepSeek<br/>chat | summary | concepts | flashcards | knowledge graph | learning path"]
-        GLM["GLM<br/>audio ASR | image OCR | PDF OCR | video understanding"]
-        Fallbacks["Local processing fallbacks<br/>PyPDF2 | python-docx | python-pptx | pytesseract | ffmpeg"]
+        DeepSeek["DeepSeek"]
+        GLM["GLM"]
+        Fallbacks["Local Fallbacks"]
     end
 
-    UI -->|HTTPS| Nginx
-    Nginx -->|REST API| FastAPI
-    FastAPI -->|metadata and state| DB
-    FastAPI -->|upload files| Files
-    FastAPI -->|enqueue background jobs| Redis
-    Domain -->|text-generation requests| DeepSeek
-    Worker -->|read source files| Files
-    Worker -->|status and generated results| DB
-    Pipeline -->|multimodal extraction| GLM
-    Pipeline -->|document and image fallback paths| Fallbacks
-    Assets -->|LLM generation| DeepSeek
+    UI --> Nginx
+    Nginx --> FastAPI
+    FastAPI --> DB
+    FastAPI --> Files
+    FastAPI --> Redis
+    Domain --> DeepSeek
+    Worker --> Files
+    Worker --> DB
+    Pipeline --> GLM
+    Pipeline --> Fallbacks
+    Assets --> DeepSeek
 
-    classDef client fill:#e0f2fe,stroke:#0369a1,stroke-width:1.5px,color:#111827,font-size:18px;
-    classDef edge fill:#f3f4f6,stroke:#4b5563,stroke-width:1.5px,color:#111827,font-size:18px;
-    classDef backend fill:#dcfce7,stroke:#15803d,stroke-width:1.5px,color:#111827,font-size:18px;
-    classDef async fill:#f3e8ff,stroke:#7e22ce,stroke-width:1.5px,color:#111827,font-size:18px;
-    classDef data fill:#dbeafe,stroke:#1d4ed8,stroke-width:1.5px,color:#111827,font-size:18px;
-    classDef ai fill:#fef3c7,stroke:#b45309,stroke-width:1.5px,color:#111827,font-size:18px;
+    classDef client fill:#e0f2fe,stroke:#0369a1,stroke-width:1.5px,color:#111827,font-size:22px;
+    classDef edge fill:#f3f4f6,stroke:#4b5563,stroke-width:1.5px,color:#111827,font-size:22px;
+    classDef backend fill:#dcfce7,stroke:#15803d,stroke-width:1.5px,color:#111827,font-size:22px;
+    classDef async fill:#f3e8ff,stroke:#7e22ce,stroke-width:1.5px,color:#111827,font-size:22px;
+    classDef data fill:#dbeafe,stroke:#1d4ed8,stroke-width:1.5px,color:#111827,font-size:22px;
+    classDef ai fill:#fef3c7,stroke:#b45309,stroke-width:1.5px,color:#111827,font-size:22px;
 
     class User,UI,ClientRuntime client;
     class Nginx edge;
@@ -187,6 +187,16 @@ flowchart TB
     style Persistence fill:#f8fafc,stroke:#94a3b8,stroke-width:1px,color:#111827;
     style Providers fill:#f8fafc,stroke:#94a3b8,stroke-width:1px,color:#111827;
 ```
+
+**Diagram Legend**
+
+- **React SPA**: dashboard, upload detail, statistics, shared materials, study groups, and admin UI
+- **API Modules**: auth, uploads, sharing, chat, and admin endpoints
+- **Security + Validation**: JWT auth, rate limits, file checks, and request sanitization
+- **Domain Services**: upload access rules, AI orchestration, quotas, statistics, and email helpers
+- **Extraction Pipeline**: document parsing, OCR, ASR, video analysis, and language detection
+- **Asset Generation**: summary, key concepts, and flashcard generation
+- **Local Fallbacks**: PyPDF2, python-docx, python-pptx, pytesseract, and ffmpeg-based helpers
 
 **Architecture Layers:**
 
