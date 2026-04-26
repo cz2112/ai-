@@ -1,138 +1,241 @@
 # Smart Study Assistant
 
-A full-stack AI-powered learning platform built with FastAPI, React, PostgreSQL, Redis, Celery, DeepSeek, and GLM.
+<p align="center">
+  AI-powered study material analysis, collaboration, and review workflows built with FastAPI, React, PostgreSQL, Redis, Celery, DeepSeek, and GLM.
+</p>
 
-## Overview
+<p align="center">
+  <img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi&logoColor=white">
+  <img alt="React" src="https://img.shields.io/badge/React-19-20232A?logo=react&logoColor=61DAFB">
+  <img alt="PostgreSQL" src="https://img.shields.io/badge/PostgreSQL-16-336791?logo=postgresql&logoColor=white">
+  <img alt="Redis" src="https://img.shields.io/badge/Redis-7-DC382D?logo=redis&logoColor=white">
+  <img alt="Celery" src="https://img.shields.io/badge/Celery-5.4-37814A?logo=celery&logoColor=white">
+  <img alt="License" src="https://img.shields.io/badge/License-MIT-black">
+</p>
 
-Smart Study Assistant processes learning materials, extracts content, and generates intelligent study aids including summaries, key concepts, flashcards, and knowledge graphs. It supports multi-turn Q&A, collaborative learning groups, content sharing, and administrative controls.
+## Table of Contents
 
-## Features
+- [What This Project Does](#what-this-project-does)
+- [Current Runtime Rules](#current-runtime-rules)
+- [Architecture Snapshot](#architecture-snapshot)
+- [Core Capabilities](#core-capabilities)
+- [Supported File Types](#supported-file-types)
+- [Repository Layout](#repository-layout)
+- [Quick Start](#quick-start)
+- [Environment Variables](#environment-variables)
+- [Docker](#docker)
+- [Sharing and Permissions](#sharing-and-permissions)
+- [Admin Access](#admin-access)
+- [Testing](#testing)
+- [Documentation](#documentation)
+- [Operational Notes](#operational-notes)
+- [License](#license)
 
-- **AI-Powered Content Analysis**: Upload documents, audio, images, or videos for automatic processing
-- **Study Tools**: Auto-generated summaries, key concepts, flashcards, knowledge graphs, and learning paths
-- **Interactive Q&A**: Context-aware question answering based on uploaded materials
-- **Collaboration**: Share materials, create study groups, and comment on content
-- **Multi-Format Support**: PDF, DOCX, PPTX, MP3, WAV, PNG, JPEG, MP4, MOV
-- **Admin Dashboard**: User management and system monitoring at `/admin`
+## What This Project Does
 
-## AI Model Routing
+Smart Study Assistant turns uploaded study material into reusable learning assets and collaborative workflows.
 
-### Text Generation (DeepSeek)
-- Summaries
-- Key concepts
-- Flashcards
-- Knowledge graphs
-- Learning paths
-- Contextual Q&A
+It currently supports:
 
-### Media & OCR (GLM)
-- Audio transcription
-- Image OCR
+- single and batch upload of documents, audio, images, and video
+- AI-generated summaries, concepts, flashcards, learning paths, and knowledge graphs
+- upload-grounded Q&A
+- public/private visibility control
+- direct sharing and study-group sharing
+- comments on uploaded materials
+- study-group chat and shared group files
+- an admin console for users, uploads, stats, and platform settings
+
+## Current Runtime Rules
+
+> Runtime database is PostgreSQL only.  
+> SQLAlchemy should use `postgresql+psycopg2://...`.  
+> SQLite is only used by tests.
+
+> Text tasks stay on DeepSeek.  
+> Audio, OCR, and video extraction go through GLM.
+
+> For reliable asynchronous processing, run Redis and the Celery worker.  
+> If queue dispatch fails entirely, the API can fall back to in-process execution. If jobs are queued but no worker consumes them, uploads remain pending.
+
+## Architecture Snapshot
+
+```mermaid
+flowchart LR
+    U[User] --> F[React Frontend]
+    F --> B[FastAPI Backend]
+    B --> P[(PostgreSQL)]
+    B --> R[(Redis)]
+    B --> W[Celery Worker]
+    W --> G[GLM]
+    W --> D[DeepSeek]
+    W --> P
+```
+
+Processing flow:
+
+1. a file is uploaded through the frontend
+2. FastAPI stores metadata in PostgreSQL and the file on disk
+3. Celery picks up the upload job
+4. GLM extracts media content when needed
+5. DeepSeek generates text-first learning artifacts
+6. the frontend reads the finished analysis and collaboration data
+
+## Core Capabilities
+
+| Area | Current behavior |
+| --- | --- |
+| Uploads | Single and batch upload, retry failed jobs, delete files, course assignment, status tracking |
+| Analysis | Summary, concepts, flashcards, transcript, Q&A, knowledge graph, learning path |
+| Collaboration | Direct share, group share, comments, shared-materials page, study-group chat |
+| Visibility | `Private` and `Public` upload-level toggle |
+| Admin | Users, uploads, platform stats, and configurable limits |
+| Deployment | Local infra compose, production-style compose, Windows bootstrap script |
+
+## Supported File Types
+
+| Category | Extensions |
+| --- | --- |
+| Documents | `pdf`, `pptx`, `ppt`, `docx` |
+| Audio | `mp3`, `wav` |
+| Images | `png`, `jpg`, `jpeg` |
+| Video | `mp4`, `mov` |
+
+## AI Routing
+
+### DeepSeek
+
+DeepSeek is used for:
+
+- summaries
+- key concepts
+- flashcards
+- knowledge graph generation
+- learning path generation
+- upload-grounded chat responses
+
+### GLM
+
+GLM is used for:
+
+- audio transcription
+- image OCR
 - PDF OCR
-- Video analysis (audio + frame extraction)
+- video audio extraction and frame-level understanding
 
-## Tech Stack
+## Repository Layout
 
-| Layer | Technology |
-|-------|-----------|
-| Backend | FastAPI + SQLAlchemy + Pydantic |
-| Frontend | React + Vite + Tailwind CSS |
-| Database | PostgreSQL |
-| Queue/Cache | Redis + Celery |
-| Text AI | DeepSeek |
-| Media AI | GLM (Zhipu) |
+This is the source-oriented structure of the project. It intentionally omits generated local directories such as `backend/venv`, `frontend/node_modules`, `frontend/dist`, and cache folders.
 
-## Project Structure
-
+```text
+ai--main/
+|-- backend/
+|   |-- app/
+|   |   |-- api/           # FastAPI route modules
+|   |   |-- core/          # config, database, auth, validation
+|   |   |-- models/        # SQLAlchemy models
+|   |   |-- schemas/       # Pydantic schemas
+|   |   |-- services/      # AI, permissions, business logic
+|   |   |-- workers/       # Celery app and async tasks
+|   |   |-- main.py        # FastAPI app entry
+|   |   `-- __init__.py
+|   |-- tests/             # backend test suite
+|   |-- .env.example
+|   |-- Dockerfile
+|   `-- requirements.txt
+|-- frontend/
+|   |-- src/
+|   |   |-- components/    # reusable UI blocks
+|   |   |-- contexts/      # auth and theme context
+|   |   |-- pages/         # route-level pages
+|   |   |-- services/      # axios client and helpers
+|   |   |-- __tests__/     # frontend tests
+|   |   |-- App.jsx
+|   |   |-- index.css
+|   |   `-- main.jsx
+|   |-- public/
+|   |-- Dockerfile
+|   |-- package.json
+|   |-- vite.config.js
+|   `-- vitest.config.js
+|-- docs/
+|   |-- API.md
+|   |-- ARCHITECTURE.md
+|   `-- USER_GUIDE.md
+|-- nginx/
+|-- sql/
+|   `-- init_postgres.sql
+|-- .github/
+|   `-- workflows/
+|-- .env.example
+|-- .gitignore
+|-- docker-compose.yml
+|-- docker-compose.prod.yml
+|-- install_windows.ps1
+`-- README.md
 ```
-.
-├── backend/
-│   ├── app/
-│   │   ├── api/          # API routes
-│   │   ├── core/         # Config, security
-│   │   ├── models/       # SQLAlchemy models
-│   │   ├── schemas/      # Pydantic schemas
-│   │   ├── services/     # Business logic
-│   │   └── workers/      # Celery tasks
-│   ├── tests/
-│   ├── Dockerfile
-│   └── requirements.txt
-├── frontend/
-│   ├── src/
-│   ├── Dockerfile
-│   └── package.json
-├── nginx/
-├── sql/
-├── docker-compose.yml
-├── docker-compose.prod.yml
-└── README.md
-```
 
-## Important Notes
-
-- **Database**: PostgreSQL is required for production. SQLite is only used for automated tests.
-- **SQLAlchemy URL**: Must use `postgresql+psycopg2://...` format.
-- **Celery Worker**: Upload processing requires a running Celery worker. If the worker is down, uploads will hang or fail.
-- **Docker Volumes**: Backend and Celery containers must share the same upload volume (pre-configured in this repo).
-
-## Environment Files
-
-Two environment templates are provided:
-
-1. **Root**: `.env.example` - Used by Docker Compose and shared defaults
-2. **Backend**: `backend/.env.example` - Used for local backend development
-
-The backend loads both root `.env` and `backend/.env`, with `backend/.env` taking precedence.
-
-## Local Development
+## Quick Start
 
 ### Prerequisites
 
-- Python 3.9+
-- Node.js 16+
-- PostgreSQL 13+
-- Redis 6+
+- Python 3.12 recommended
+- Node.js 20+ recommended
+- PostgreSQL 16 compatible runtime
+- Redis 7 compatible runtime
+- Docker Desktop if you want infra in containers
 
 ### 1. Start PostgreSQL and Redis
 
-**Option A: Using Docker**
-```bash
+If you want local infra via Docker:
+
+```powershell
 docker compose up -d postgres redis
 ```
 
-**Option B: Local PostgreSQL**
-```bash
+If PostgreSQL is already installed locally and you want the expected role/database:
+
+```powershell
 psql -U postgres -f sql/init_postgres.sql
 ```
 
-### 2. Configure Backend Environment
+### 2. Configure backend environment
 
-```bash
+Copy the backend template:
+
+```powershell
 Copy-Item backend/.env.example backend/.env
 ```
 
-Edit `backend/.env` with required values:
+Minimum required values:
 
 ```env
-# Required
 DATABASE_URL=postgresql+psycopg2://studyapp:studyapp123@localhost:5432/smart_study
 REDIS_URL=redis://localhost:6379/0
 SECRET_KEY=change-me-in-production
 
-# DeepSeek (Text AI)
-DEEPSEEK_API_KEY=your-deepseek-key
 AI_PROVIDER=deepseek
 AI_BASE_URL=https://api.deepseek.com
 LLM_MODEL=deepseek-v4-flash
+DEEPSEEK_API_KEY=your-deepseek-key
 
-# GLM (Media AI)
 ZHIPU_API_KEY=your-glm-key
 GLM_BASE_URL=https://open.bigmodel.cn/api/paas/v4
 GLM_ASR_MODEL=glm-asr-2512
 GLM_VISION_MODEL=glm-4.6v
 GLM_OCR_MODEL=glm-ocr
+```
 
-# Optional: Email (for verification and password reset)
+Optional values:
+
+```env
+AI_API_KEY=
+ACCESS_TOKEN_EXPIRE_MINUTES=30
+MAX_UPLOADS_PER_USER=100
+MAX_UPLOAD_SIZE_MB=50
+MAX_AUDIO_MINUTES=120
+MAX_PDF_PAGES=500
+
 MAIL_USERNAME=
 MAIL_PASSWORD=
 MAIL_FROM=
@@ -140,11 +243,15 @@ MAIL_PORT=465
 MAIL_SERVER=smtp.qq.com
 ```
 
-**Note**: `AI_API_KEY` is a fallback for DeepSeek. The primary key is `DEEPSEEK_API_KEY`.
+Notes:
 
-### 3. Install and Run Backend
+- `AI_API_KEY` is only a fallback for the DeepSeek client.
+- the backend loads both root `.env` and `backend/.env`
+- `backend/.env` overrides root `.env`
 
-```bash
+### 3. Install and run the backend
+
+```powershell
 cd backend
 python -m venv venv
 .\venv\Scripts\activate
@@ -152,104 +259,212 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
-Backend health check: [http://127.0.0.1:8000/api/health](http://127.0.0.1:8000/api/health)
+Backend URL:
 
-### 4. Start Celery Worker
+- `http://127.0.0.1:8000`
+- health check: `http://127.0.0.1:8000/api/health`
 
-**Windows:**
-```bash
+### 4. Start the worker
+
+Windows:
+
+```powershell
 cd backend
 .\venv\Scripts\celery.exe -A app.workers.celery_app worker --loglevel=info --pool=solo
 ```
 
-**Linux/Mac:**
+Linux or macOS:
+
 ```bash
 cd backend
 celery -A app.workers.celery_app worker --loglevel=info
 ```
 
-### 5. Run Frontend
+### 5. Run the frontend
 
-```bash
+```powershell
 cd frontend
 npm install
 npm run dev
 ```
 
-Frontend: [http://127.0.0.1:5173](http://127.0.0.1:5173)
+Frontend URL:
 
-## Docker Deployment
+- `http://127.0.0.1:5173`
 
-### Local Infrastructure Only
+## Environment Variables
 
-Use `docker-compose.yml` to run only PostgreSQL and Redis:
+There are two templates in this repository:
 
-```bash
+- root: [`.env.example`](./.env.example)
+- backend-local: [`backend/.env.example`](./backend/.env.example)
+
+Key variables:
+
+| Variable | Purpose |
+| --- | --- |
+| `DATABASE_URL` | PostgreSQL connection string |
+| `REDIS_URL` | Redis broker/result backend |
+| `SECRET_KEY` | JWT and token signing secret |
+| `DEEPSEEK_API_KEY` | DeepSeek text task key |
+| `AI_PROVIDER` | Current text provider, expected `deepseek` |
+| `AI_BASE_URL` | DeepSeek API base URL |
+| `LLM_MODEL` | Text model name |
+| `ZHIPU_API_KEY` | GLM key |
+| `GLM_*` | Media model names and behavior tuning |
+| `MAX_*` | Upload and processing limits |
+| `MAIL_*` | Optional email verification / password reset config |
+
+## Docker
+
+### Local infra only
+
+[`docker-compose.yml`](./docker-compose.yml) starts:
+
+- PostgreSQL
+- Redis
+
+Use this when you want to run FastAPI, Celery, and Vite directly on your machine.
+
+```powershell
 docker compose up -d postgres redis
 ```
 
-This is useful when you want to run FastAPI/Celery/Vite directly on your machine but keep databases in containers.
+### Full production-style stack
 
-### Full Production Stack
-
-Use `docker-compose.prod.yml` to run the complete stack:
+[`docker-compose.prod.yml`](./docker-compose.prod.yml) starts:
 
 - PostgreSQL
 - Redis
 - FastAPI backend
 - Celery worker
-- React frontend
+- React frontend container
 - Nginx reverse proxy
 
-```bash
+```powershell
 Copy-Item .env.example .env
-# Edit .env with your configuration
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-## Administration
+Default public entry point after boot:
 
-- **Admin Interface**: `/admin`
-- **Access**: Only visible to authenticated users with `is_admin=true`
-- **Default Admin**: No default admin user is created on startup. You must manually set `is_admin=true` in the database.
+- `http://127.0.0.1`
 
-## File Visibility Model
+## Sharing and Permissions
 
-### Private
-- Visible to owner
-- Visible to explicitly shared users
-- Visible to members of groups the file is shared with
+Current read-access model:
 
-### Public
-- Visible in shared materials list to all users
+- owner
+- directly shared user
+- member of a group the upload was shared into
+- public viewer when `is_shared=true`
+- admin
 
-### Private + Shared to Group
-- Only accessible to group members
-- Not publicly visible
+Practical behavior:
+
+- `Private` means not globally public
+- `Private + group share` means only that group can open it
+- `Public` means the file appears in `Shared With Me`
+- admins can open any upload analysis page
+
+## Collaboration Behavior
+
+The current product behavior is:
+
+- shared users can open the same analysis page as the owner
+- non-owners see `Read Only` where editing is owner-only
+- comments are available on upload detail pages
+- study-group chat supports text messages
+- group file sharing uses already-uploaded completed materials, not raw file upload inside chat
+
+## Admin Access
+
+Admin route:
+
+- `/admin`
+
+Important:
+
+- there is no automatic default admin bootstrap
+- newly registered users are normal users by default
+- the navbar only shows the admin entry when `is_admin=true`
+
+Example manual promotion in PostgreSQL:
+
+```sql
+UPDATE users
+SET is_admin = TRUE
+WHERE username = 'your-username';
+```
 
 ## Testing
 
-**Backend:**
-```bash
+Backend:
+
+```powershell
 cd backend
 pytest tests -v
 ```
 
-**Frontend:**
-```bash
+Frontend:
+
+```powershell
 cd frontend
 npm test
 ```
 
-## Technical Details
+Frontend production build:
 
-### OCR Processing
-- Primary: GLM `layout_parsing` with data URL payload for images and PDFs
-- Fallback: Local PDF extraction or `pytesseract` when GLM is unavailable
+```powershell
+cd frontend
+npm run build
+```
 
-### File Uploads
-- Production environments share `/app/uploads` between backend and worker containers
-- Ensures media processing can correctly read uploaded files
+## Documentation
+
+Detailed project docs live in:
+
+- [docs/API.md](./docs/API.md)
+- [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)
+- [docs/USER_GUIDE.md](./docs/USER_GUIDE.md)
+
+## Operational Notes
+
+### OCR path
+
+Current OCR behavior:
+
+- primary path: GLM `layout_parsing`
+- image and PDF payloads are sent as data URLs
+- fallback path: local PDF extraction or `pytesseract`
+
+### Upload processing
+
+The worker stores output back into the relational model:
+
+- transcript
+- summary
+- concepts
+- flashcards
+- language metadata
+
+### Docker upload volume
+
+The production compose file mounts the same uploads directory into backend and worker containers:
+
+- backend: `/app/uploads`
+- worker: `/app/uploads`
+
+That shared volume is required so asynchronous media processing can read uploaded files.
+
+### CORS
+
+Local frontend origins already allowed in the backend:
+
+- `http://localhost:5173`
+- `http://127.0.0.1:5173`
+- `http://localhost:3000`
+- `http://127.0.0.1:3000`
 
 ## License
 
