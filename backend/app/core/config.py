@@ -28,6 +28,10 @@ def _default_ai_base_url(provider: str) -> str:
     return "https://api.deepseek.com"
 
 
+def _env_flag(name: str, default: str = "false") -> bool:
+    return os.getenv(name, default).strip().lower() in {"1", "true", "yes", "on"}
+
+
 class Settings(BaseSettings):
     DATABASE_URL: str = os.getenv(
         "DATABASE_URL",
@@ -57,6 +61,10 @@ class Settings(BaseSettings):
     GLM_ASR_CHUNK_SECONDS: int = int(os.getenv("GLM_ASR_CHUNK_SECONDS", "25"))
     GLM_VIDEO_FRAME_COUNT: int = int(os.getenv("GLM_VIDEO_FRAME_COUNT", "6"))
     REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+    DEFAULT_ADMIN_ENABLED: bool = _env_flag("DEFAULT_ADMIN_ENABLED", "false")
+    DEFAULT_ADMIN_USERNAME: str = os.getenv("DEFAULT_ADMIN_USERNAME", "admin")
+    DEFAULT_ADMIN_EMAIL: str = os.getenv("DEFAULT_ADMIN_EMAIL", "admin@example.com")
+    DEFAULT_ADMIN_PASSWORD: str = os.getenv("DEFAULT_ADMIN_PASSWORD", "")
 
     MAX_UPLOADS_PER_USER: int = int(os.getenv("MAX_UPLOADS_PER_USER", "100"))
     MAX_UPLOAD_SIZE_MB: int = int(os.getenv("MAX_UPLOAD_SIZE_MB", "50"))

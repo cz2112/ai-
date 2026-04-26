@@ -306,6 +306,11 @@ export default function DashboardPage() {
                     <span>{new Date(u.created_at).toLocaleString()}</span>
                     {getCourseName(u) && <span className="text-blue-500 dark:text-blue-400">{getCourseName(u)}</span>}
                   </div>
+                  {u.status === 'Failed' && u.error_message && (
+                    <p className="mt-2 text-xs text-red-600 dark:text-red-400 break-words">
+                      {u.error_message}
+                    </p>
+                  )}
                 </div>
                 <div className="flex items-center gap-3 ml-4">
                   {u.status === 'Completed' && (

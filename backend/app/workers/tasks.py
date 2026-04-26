@@ -9,6 +9,29 @@ from app.services.ai_service import (
 )
 
 
+NON_RETRYABLE_CONFIG_ERRORS = (
+    "DeepSeek API key is not configured",
+    "ZHIPU_API_KEY is not configured",
+    "Video analysis requires ZHIPU_API_KEY",
+)
+
+
+def _is_non_retryable_error(exc: Exception) -> bool:
+    message = str(exc)
+    return any(marker in message for marker in NON_RETRYABLE_CONFIG_ERRORS)
+
+
+def _user_facing_error_message(exc: Exception) -> str:
+    message = str(exc).strip()
+    if "DeepSeek API key is not configured" in message:
+        return "DeepSeek API key is not configured. Set DEEPSEEK_API_KEY in backend/.env, then restart the backend and Celery worker."
+    if "ZHIPU_API_KEY is not configured" in message:
+        return "Zhipu GLM API key is not configured. Set ZHIPU_API_KEY in backend/.env, then restart the backend and Celery worker."
+    if "Video analysis requires ZHIPU_API_KEY" in message:
+        return "Video analysis requires ZHIPU_API_KEY. Set it in backend/.env, then restart the backend and Celery worker."
+    return message
+
+
 @celery_app.task(bind=True, max_retries=2, default_retry_delay=30)
 def process_upload(self, upload_id: int):
     db = SessionLocal()
@@ -78,9 +101,9 @@ def process_upload(self, upload_id: int):
         upload = db.query(Upload).filter(Upload.id == upload_id).first()
         if upload:
             upload.status = "Failed"
-            upload.error_message = str(exc)[:500]
+            upload.error_message = _user_facing_error_message(exc)[:500]
             db.commit()
-        if self.request.retries < self.max_retries:
+        if not _is_non_retryable_error(exc) and self.request.retries < self.max_retries:
             raise self.retry(exc=exc)
     finally:
         db.close()

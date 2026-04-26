@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
@@ -29,6 +31,7 @@ from app.api.uploads import router as uploads_router
 from app.api.admin import router as admin_router
 from app.api.share import router as share_router
 from app.api.chat import router as chat_router
+from app.services.admin_bootstrap import bootstrap_default_admin
 
 # Create tables
 Base.metadata.create_all(bind=engine)
@@ -56,8 +59,14 @@ with engine.connect() as conn:
             conn.execute(text("ALTER TABLE shared_uploads ADD COLUMN permission VARCHAR(20) DEFAULT 'read'"))
             conn.commit()
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    del app
+    bootstrap_default_admin()
+    yield
 
-app = FastAPI(title="Smart Study Assistant", version="2.0.0")
+
+app = FastAPI(title="Smart Study Assistant", version="2.0.0", lifespan=lifespan)
 
 # Rate limiting
 app.state.limiter = limiter

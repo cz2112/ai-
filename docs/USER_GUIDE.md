@@ -261,7 +261,7 @@ The learning path generator works from your completed uploads.
 
 The admin UI is available at `/admin`, but the navbar shows the link only for users whose account has `is_admin=true`.
 
-There is no automatic default admin bootstrap in the application. An account must be promoted manually or created as admin in the database.
+Automatic default admin bootstrap is optional. Enable it with `DEFAULT_ADMIN_ENABLED=true` and the `DEFAULT_ADMIN_*` environment variables, or promote an account manually in the database.
 
 ### Admin tabs
 

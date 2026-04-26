@@ -10,3 +10,5 @@ venv/
 nul
 *.db
 *.sqlite3
+.run/
+.codex-*.log

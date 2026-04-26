@@ -551,6 +551,10 @@ Optional values:
 ```env
 AI_API_KEY=
 ACCESS_TOKEN_EXPIRE_MINUTES=30
+DEFAULT_ADMIN_ENABLED=false
+DEFAULT_ADMIN_USERNAME=admin
+DEFAULT_ADMIN_EMAIL=admin@example.com
+DEFAULT_ADMIN_PASSWORD=
 MAX_UPLOADS_PER_USER=100
 MAX_UPLOAD_SIZE_MB=50
 MAX_AUDIO_MINUTES=120
@@ -705,11 +709,20 @@ Admin route:
 
 Important:
 
-- there is no automatic default admin bootstrap
 - newly registered users are normal users by default
+- optional startup bootstrap is available through `DEFAULT_ADMIN_*` environment variables
 - the navbar only shows the admin entry when `is_admin=true`
 
-Example manual promotion in PostgreSQL:
+To auto-create or auto-promote an admin on startup, set these values in `backend/.env`:
+
+```env
+DEFAULT_ADMIN_ENABLED=true
+DEFAULT_ADMIN_USERNAME=admin
+DEFAULT_ADMIN_EMAIL=admin@example.com
+DEFAULT_ADMIN_PASSWORD=change-this-password
+```
+
+If startup bootstrap is disabled, you can still promote a user manually in PostgreSQL:
 
 ```sql
 UPDATE users

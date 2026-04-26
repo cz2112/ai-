@@ -644,7 +644,7 @@ Allowed for:
 
 All admin endpoints require `is_admin=true`.
 
-There is no automatic default admin bootstrap in the application.
+Automatic default admin bootstrap is optional. Enable it with `DEFAULT_ADMIN_ENABLED=true` and the `DEFAULT_ADMIN_*` environment variables, or promote a user manually in the database.
 
 ### `GET /admin/users`
 
