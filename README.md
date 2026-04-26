@@ -13,13 +13,32 @@
   <img alt="License" src="https://img.shields.io/badge/License-MIT-black">
 </p>
 
+<p align="center">
+  <a href="#quick-start"><strong>Quick Start</strong></a>
+  |
+  <a href="#current-ui-pages"><strong>Current UI Pages</strong></a>
+  |
+  <a href="#docker"><strong>Docker</strong></a>
+  |
+  <a href="./docs/API.md"><strong>API Docs</strong></a>
+  |
+  <a href="./docs/ARCHITECTURE.md"><strong>Architecture</strong></a>
+</p>
+
+> This README describes the project as it is implemented in the current repository, including the active UI routes, permission model, and runtime constraints.
+>
+> The structure and wording of the architecture section below are inspired by the project proposal PDF, but the technical facts are written against the current codebase and runtime configuration.
+
 ## Table of Contents
 
 - [What This Project Does](#what-this-project-does)
 - [Current Runtime Rules](#current-runtime-rules)
-- [Architecture Snapshot](#architecture-snapshot)
+- [System Structure](#system-structure)
 - [Core Capabilities](#core-capabilities)
+- [Scenario / Workflow](#scenario--workflow)
+- [Current UI Pages](#current-ui-pages)
 - [Supported File Types](#supported-file-types)
+- [AI Routing](#ai-routing)
 - [Repository Layout](#repository-layout)
 - [Quick Start](#quick-start)
 - [Environment Variables](#environment-variables)
@@ -58,39 +77,176 @@ It currently supports:
 > For reliable asynchronous processing, run Redis and the Celery worker.  
 > If queue dispatch fails entirely, the API can fall back to in-process execution. If jobs are queued but no worker consumes them, uploads remain pending.
 
-## Architecture Snapshot
+## System Structure
+
+### Architecture Overview
+
+The system uses a decoupled web-and-worker architecture so the UI stays responsive while larger files are processed asynchronously.
+
+Major runtime components in the current codebase are:
+
+- **Frontend**: React + Vite + Tailwind for the browser UI
+- **Backend**: FastAPI for REST APIs, authentication, validation, and orchestration
+- **Broker**: Redis for Celery queue transport
+- **Worker**: Celery for background extraction, OCR, transcription, and study-asset generation
+- **Database**: PostgreSQL for persistent storage
+- **Text AI**: DeepSeek for summaries, concepts, flashcards, learning path, knowledge graph, and upload-grounded Q&A
+- **Media AI**: GLM for audio transcription, image OCR, PDF OCR, and video extraction
+- **Reverse Proxy**: Nginx in the production-style Docker stack
+
+### Architecture Diagram
 
 ```mermaid
 flowchart LR
-    U[User] --> F[React Frontend]
-    F --> B[FastAPI Backend]
-    B --> P[(PostgreSQL)]
-    B --> R[(Redis)]
-    B --> W[Celery Worker]
-    W --> G[GLM]
-    W --> D[DeepSeek]
-    W --> P
+    U[User] --> FE[React Frontend]
+    FE --> API[FastAPI Backend]
+    API --> DB[(PostgreSQL)]
+    API --> REDIS[(Redis)]
+    API --> CW[Celery Worker]
+    CW --> DB
+    CW --> GLM[GLM]
+    CW --> DS[DeepSeek]
 ```
 
-Processing flow:
+### Processing Flow
 
-1. a file is uploaded through the frontend
-2. FastAPI stores metadata in PostgreSQL and the file on disk
-3. Celery picks up the upload job
-4. GLM extracts media content when needed
-5. DeepSeek generates text-first learning artifacts
-6. the frontend reads the finished analysis and collaboration data
+1. the user uploads a file from the frontend
+2. FastAPI validates the file, stores metadata in PostgreSQL, and writes the uploaded file to disk
+3. the backend enqueues a background job through Celery and Redis
+4. the Celery worker extracts text, OCR output, audio transcription, or video-derived content depending on file type
+5. DeepSeek generates the study assets from the extracted content
+6. the worker stores transcript, summary, concepts, flashcards, and language metadata back into PostgreSQL
+7. the frontend reads the finished outputs through the normal API routes
+
+### Major Components and Responsibilities
+
+| Component | Responsibility in the current codebase |
+| --- | --- |
+| Frontend | Login, dashboard, upload flows, detail tabs, statistics, sharing pages, group workspace, admin pages |
+| Backend API | Authentication, upload CRUD, sharing APIs, comments, groups, chat, admin endpoints, quota and statistics |
+| Security Layer | JWT auth, admin checks, SlowAPI rate limits, file magic-number validation, input sanitization |
+| Upload Access Layer | Central read-access rules for owner, direct share, group share, public visibility, and admin access |
+| Collaboration Module | Direct shares, visibility toggle, comments, study groups, join requests, invites, group chat, group files |
+| SM-2 Review Logic | Flashcard review scheduling and review history persistence |
+| Celery Worker | Async extraction pipeline, OCR, ASR, LLM calls, upload status transitions |
+| PostgreSQL | Users, uploads, summaries, concepts, flashcards, reviews, comments, shares, groups, chat, admin-visible records |
+| Redis | Celery broker for asynchronous job dispatch |
+| Nginx | Production-facing reverse proxy in `docker-compose.prod.yml` |
 
 ## Core Capabilities
 
-| Area | Current behavior |
-| --- | --- |
-| Uploads | Single and batch upload, retry failed jobs, delete files, course assignment, status tracking |
-| Analysis | Summary, concepts, flashcards, transcript, Q&A, knowledge graph, learning path |
-| Collaboration | Direct share, group share, comments, shared-materials page, study-group chat |
-| Visibility | `Private` and `Public` upload-level toggle |
-| Admin | Users, uploads, platform stats, and configurable limits |
-| Deployment | Local infra compose, production-style compose, Windows bootstrap script |
+The current implementation groups its main capabilities into the following functional areas.
+
+### 1. Upload and Processing
+
+- single-file and batch upload
+- file-type validation and size checks
+- asynchronous processing with upload status transitions
+- retry for failed uploads
+- course assignment and dashboard filtering
+
+### 2. Study Asset Generation
+
+- transcript or extracted text
+- summary
+- key concepts with citations
+- flashcards
+- upload-grounded Q&A
+- knowledge graph generation
+- AI learning path generation
+
+### 3. Collaboration and Access Control
+
+- direct sharing to a specific user
+- share to study groups
+- upload-level `Private` / `Public` visibility
+- comments on uploaded materials
+- group chat and group-shared files
+- central read-access enforcement across detail, export, graph, and chat routes
+
+### 4. Review and Analytics
+
+- SM-2 spaced repetition review
+- flashcard known-state management
+- study activity heatmap
+- upload and progress charts
+- forgetting-curve visualization
+- quota and usage summaries
+
+### 5. Administration and Deployment
+
+- admin dashboard for users, uploads, stats, and settings
+- Docker-based local infra and production-style stack
+- CI/CD workflow files under `.github/workflows`
+- Windows bootstrap script for development prerequisites
+
+## Scenario / Workflow
+
+### Use Case: Uploading and Reviewing Study Material
+
+This scenario is written in the style of the project proposal document, but it reflects the current codebase.
+
+**Preconditions**
+
+- the user is authenticated
+- PostgreSQL is available
+- Redis is available for normal async dispatch
+- the backend can reach the Celery worker for queued processing, or fall back to in-process execution if dispatch fails immediately
+
+**Normal flow**
+
+1. the user opens the dashboard and uploads one file or multiple files
+2. FastAPI validates extension, size, and file signature, then stores the file and creates an upload record with `Pending`
+3. the backend dispatches `process_upload`
+4. the worker moves the upload to `Processing`
+5. text, OCR output, transcription, or video-derived content is extracted based on file type
+6. the worker detects language and generates summary, concepts, and flashcards
+7. generated outputs are stored in PostgreSQL and the upload becomes `Completed`
+8. the user opens the upload detail page to review summary, concepts, flashcards, graph, transcript, comments, and Q&A
+
+**Error flow**
+
+- unsupported or invalid files are rejected before processing
+- worker exceptions mark the upload as `Failed`
+- failed uploads can be retried from the dashboard
+
+**Concurrent behavior**
+
+- while a job is processing, the user can still browse existing uploads, open completed analyses, use shared pages, or work inside study groups
+
+**End state**
+
+- the upload record stores transcript, language, status, and any error message
+- generated study assets are persisted and available through the normal read-access rules
+
+## Current UI Pages
+
+The frontend currently exposes these route-level pages:
+
+| Route | Page | Purpose |
+| --- | --- | --- |
+| `/login` | Login / Register | Public entry page for sign-in and account creation |
+| `/` | Dashboard | Upload files, manage courses, search/filter uploads, retry failed jobs, toggle `Private` / `Public` |
+| `/uploads/:id` | Upload Detail | View summary, concepts, flashcards, Q&A, graph, transcript, comments, export, and sharing controls |
+| `/stats` | Statistics | Study activity, upload trends, quota overview, forgetting curve, learning path generation |
+| `/shared` | Shared With Me | Open direct shares, public materials, and files shared through groups |
+| `/groups` | Study Groups | Group workspace with members, invites, join requests, chat, and group-shared files |
+| `/admin` | Admin Dashboard | Admin-only view for users, uploads, platform statistics, and settings |
+
+Navigation currently shown in the authenticated navbar:
+
+- `Dashboard`
+- `Statistics`
+- `Shared`
+- `Groups`
+- `Admin` only when `user.is_admin === true`
+
+Important UI behavior:
+
+- all routes except `/login` require authentication
+- `/login` redirects authenticated users back to `/`
+- upload detail pages become `Read Only` for non-owners even when they still have read access
+- dark mode is available in the navbar
 
 ## Supported File Types
 
@@ -103,25 +259,27 @@ Processing flow:
 
 ## AI Routing
 
-### DeepSeek
+The current runtime splits AI responsibilities by task type rather than by page.
 
-DeepSeek is used for:
+| Capability | Current provider | Notes |
+| --- | --- | --- |
+| Summary generation | DeepSeek | generated from extracted upload content |
+| Key concept generation | DeepSeek | includes citation-aware concept extraction |
+| Flashcard generation | DeepSeek | stored for later review and SM-2 workflow |
+| Upload chat | DeepSeek | user-scoped conversations grounded in upload content |
+| Knowledge graph generation | DeepSeek | generated from transcript or summary-backed content |
+| Learning path generation | DeepSeek | generated from completed uploads |
+| Audio transcription | GLM | used for `mp3` and `wav` uploads |
+| Image OCR | GLM | primary OCR path for `png`, `jpg`, `jpeg` |
+| PDF OCR | GLM | primary OCR path for PDF before local fallback |
+| Video extraction | GLM | combines audio transcription and sampled-frame understanding |
 
-- summaries
-- key concepts
-- flashcards
-- knowledge graph generation
-- learning path generation
-- upload-grounded chat responses
+### Routing Notes
 
-### GLM
-
-GLM is used for:
-
-- audio transcription
-- image OCR
-- PDF OCR
-- video audio extraction and frame-level understanding
+- DeepSeek remains the text-first reasoning and generation provider in this repository
+- GLM handles media ingestion and OCR-related entry points
+- PDF and image extraction still have local fallback paths when the GLM OCR path is unavailable
+- the worker pipeline is responsible for calling these providers; the frontend never talks to them directly
 
 ## Repository Layout
 
