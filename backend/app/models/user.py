@@ -1,7 +1,8 @@
-# backend/app/models/user.py
-from sqlalchemy import Column, Integer, String, Boolean, DateTime
+from datetime import datetime, timezone
+
+from sqlalchemy import Boolean, Column, DateTime, Integer, String
 from sqlalchemy.orm import relationship
-from datetime import datetime
+
 from app.core.database import Base
 
 
@@ -14,10 +15,10 @@ class User(Base):
     hashed_password = Column(String(255), nullable=False)
     is_admin = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
-    is_verified = Column(Boolean, default=False)  # 邮箱是否已验证
-    created_at = Column(DateTime, default=datetime.now)
+    is_verified = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
-    # 基础关系（只保留最基本的）
     uploads = relationship("Upload", back_populates="user", cascade="all, delete-orphan")
-    # courses = relationship("Course", back_populates="user")
-    tags = relationship("Tag", back_populates="user")
+    tags = relationship("Tag", back_populates="user", cascade="all, delete-orphan")
+    courses = relationship("Course", back_populates="user", cascade="all, delete-orphan")
+    conversations = relationship("Conversation", back_populates="user", cascade="all, delete-orphan")

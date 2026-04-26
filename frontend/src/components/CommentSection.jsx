@@ -1,88 +1,127 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
+
+import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
+import getApiErrorMessage from '../services/errorMessage';
+
 
 export default function CommentSection({ uploadId }) {
+  const { user } = useAuth();
   const [comments, setComments] = useState([]);
-  const [newComment, setNewComment] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
 
-  useEffect(() => {
-    fetchComments();
-  }, [uploadId]);
-
-  const fetchComments = async () => {
+  const loadComments = async () => {
+    setError('');
     try {
       const res = await api.get(`/share/${uploadId}/comments`);
-      setComments(res.data);
-    } catch {}
+      setComments(res.data || []);
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Failed to load comments'));
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!newComment.trim()) return;
+  useEffect(() => {
     setLoading(true);
+    loadComments();
+  }, [uploadId]);
+
+  const submitComment = async (e) => {
+    e.preventDefault();
+    const content = draft.trim();
+    if (!content) return;
+
+    setSubmitting(true);
+    setError('');
     try {
-      await api.post(`/share/${uploadId}/comments`, { content: newComment.trim() });
-      setNewComment('');
-      fetchComments();
-    } catch {}
-    setLoading(false);
+      const res = await api.post(`/share/${uploadId}/comments`, { content });
+      setComments((prev) => [...prev, res.data]);
+      setDraft('');
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Failed to post comment'));
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  const handleDelete = async (commentId) => {
+  const deleteComment = async (commentId) => {
+    setError('');
     try {
       await api.delete(`/share/comments/${commentId}`);
-      fetchComments();
-    } catch {}
+      setComments((prev) => prev.filter((comment) => comment.id !== commentId));
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Failed to delete comment'));
+    }
   };
 
   return (
-    <div className="space-y-4">
-      <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-        Comments ({comments.length})
-      </h3>
-
-      <form onSubmit={handleSubmit} className="flex gap-2">
-        <input
-          type="text"
-          value={newComment}
-          onChange={(e) => setNewComment(e.target.value)}
-          placeholder="Add a comment..."
-          className="flex-1 text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400"
-        />
+    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-6">
+      <div className="flex items-center justify-between gap-3 mb-4">
+        <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Comments</h3>
         <button
-          type="submit"
-          disabled={loading || !newComment.trim()}
-          className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50 transition"
+          onClick={loadComments}
+          className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
         >
-          Post
+          Refresh
         </button>
+      </div>
+
+      {error && (
+        <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 p-3 rounded-lg mb-4 text-sm">
+          {error}
+        </div>
+      )}
+
+      <form onSubmit={submitComment} className="mb-5">
+        <textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          rows={3}
+          placeholder="Add a comment..."
+          className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+        />
+        <div className="flex justify-end mt-3">
+          <button
+            type="submit"
+            disabled={submitting || !draft.trim()}
+            className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition"
+          >
+            {submitting ? 'Posting...' : 'Post Comment'}
+          </button>
+        </div>
       </form>
 
-      <div className="space-y-3">
-        {comments.map((c) => (
-          <div key={c.id} className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
-            <div className="flex justify-between items-start">
-              <div>
-                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{c.username}</span>
-                <span className="text-xs text-gray-400 dark:text-gray-500 ml-2">
-                  {new Date(c.created_at).toLocaleString()}
-                </span>
+      {loading ? (
+        <p className="text-sm text-gray-500 dark:text-gray-400">Loading comments...</p>
+      ) : comments.length === 0 ? (
+        <p className="text-sm text-gray-500 dark:text-gray-400">No comments yet.</p>
+      ) : (
+        <div className="space-y-3">
+          {comments.map((comment) => (
+            <div key={comment.id} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+              <div className="flex items-center justify-between gap-3 mb-2">
+                <div>
+                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{comment.username || `User #${comment.user_id}`}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{new Date(comment.created_at).toLocaleString()}</p>
+                </div>
+                {user?.id === comment.user_id && (
+                  <button
+                    onClick={() => deleteComment(comment.id)}
+                    className="text-xs text-red-600 dark:text-red-400 hover:underline"
+                  >
+                    Delete
+                  </button>
+                )}
               </div>
-              <button
-                onClick={() => handleDelete(c.id)}
-                className="text-xs text-gray-400 hover:text-red-500"
-              >
-                Delete
-              </button>
+              <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{comment.content}</p>
             </div>
-            <p className="text-sm text-gray-700 dark:text-gray-300 mt-1">{c.content}</p>
-          </div>
-        ))}
-        {comments.length === 0 && (
-          <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-4">No comments yet</p>
-        )}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

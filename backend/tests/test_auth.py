@@ -1,5 +1,8 @@
 """Tests for authentication endpoints: /api/auth/*"""
 
+from app.models.user import User
+from tests.conftest import TestingSessionLocal
+
 
 class TestRegister:
     """POST /api/auth/register"""
@@ -77,6 +80,35 @@ class TestLogin:
         )
         assert resp.status_code == 401
         assert "incorrect" in resp.json()["detail"].lower()
+
+    def test_login_legacy_plaintext_password_rehashes(self, client):
+        db = TestingSessionLocal()
+        legacy_user = User(
+            username="legacyuser",
+            email="legacy@example.com",
+            hashed_password="legacy-secret",
+            is_active=True,
+        )
+        db.add(legacy_user)
+        db.commit()
+        db.refresh(legacy_user)
+        legacy_user_id = legacy_user.id
+        db.close()
+
+        resp = client.post(
+            "/api/auth/login",
+            data={"username": "legacyuser", "password": "legacy-secret"},
+        )
+
+        assert resp.status_code == 200
+        assert "access_token" in resp.json()
+
+        db = TestingSessionLocal()
+        refreshed = db.query(User).filter(User.id == legacy_user_id).first()
+        assert refreshed is not None
+        assert refreshed.hashed_password != "legacy-secret"
+        assert refreshed.hashed_password.startswith("$pbkdf2-sha256$")
+        db.close()
 
 
 class TestProfile:

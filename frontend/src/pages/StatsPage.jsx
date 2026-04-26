@@ -1,10 +1,48 @@
-import { useState, useEffect } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, AreaChart, Area } from 'recharts';
+import { useEffect, useState } from 'react';
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Line,
+  LineChart,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
+
 import Navbar from '../components/Navbar';
 import StudyHeatmap from '../components/StudyHeatmap';
 import api from '../services/api';
+import getApiErrorMessage from '../services/errorMessage';
+
 
 const COLORS = ['#3b82f6', '#22c55e', '#eab308', '#ef4444'];
+
+const EMPTY_STATS = {
+  total_uploads: 0,
+  completed_uploads: 0,
+  total_flashcards: 0,
+  known_flashcards: 0,
+  total_concepts: 0,
+  uploads_by_date: [],
+  uploads_by_status: {},
+  study_activity_by_date: [],
+};
+
+const EMPTY_QUOTA = {
+  uploads_used: 0,
+  uploads_limit: 0,
+  max_file_size_mb: 0,
+  max_audio_minutes: 0,
+  max_pdf_pages: 0,
+};
+
 
 export default function StatsPage() {
   const [stats, setStats] = useState(null);
@@ -15,42 +53,54 @@ export default function StatsPage() {
   const [pathLoading, setPathLoading] = useState(false);
   const [uploads, setUploads] = useState([]);
   const [progressData, setProgressData] = useState([]);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    Promise.all([
-      api.get('/uploads/stats'),
-      api.get('/uploads/quota'),
-      api.get('/uploads/'),
-    ]).then(([s, q, u]) => {
-      setStats(s.data);
-      setQuota(q.data);
-      setUploads(u.data.filter((up) => up.status === 'Completed'));
-      // Build heatmap from study_activity_by_date
-      if (s.data.study_activity_by_date) {
-        setHeatmapData(s.data.study_activity_by_date);
+    const load = async () => {
+      setError('');
+
+      const [statsRes, quotaRes, uploadsRes] = await Promise.allSettled([
+        api.get('/uploads/stats'),
+        api.get('/uploads/quota'),
+        api.get('/uploads/'),
+      ]);
+
+      const statsData = statsRes.status === 'fulfilled' ? statsRes.value.data : EMPTY_STATS;
+      const quotaData = quotaRes.status === 'fulfilled' ? quotaRes.value.data : EMPTY_QUOTA;
+      const uploadsData = uploadsRes.status === 'fulfilled' ? uploadsRes.value.data : [];
+
+      setStats(statsData);
+      setQuota(quotaData);
+      setUploads((uploadsData || []).filter((up) => up.status === 'Completed'));
+      setHeatmapData(statsData.study_activity_by_date || []);
+
+      let cumulative = 0;
+      setProgressData((statsData.uploads_by_date || []).map((d) => {
+        cumulative += d.count;
+        return { date: d.date, uploads: d.count, total: cumulative };
+      }));
+
+      const rejected = [statsRes, quotaRes, uploadsRes].find((result) => result.status === 'rejected');
+      if (rejected) {
+        setError(getApiErrorMessage(rejected.reason, 'Some statistics are unavailable right now.'));
       }
-      // Build progress data from uploads_by_date
-      if (s.data.uploads_by_date) {
-        let cumulative = 0;
-        setProgressData(s.data.uploads_by_date.map((d) => {
-          cumulative += d.count;
-          return { date: d.date, uploads: d.count, total: cumulative };
-        }));
-      }
-    });
+    };
+
+    load();
   }, []);
 
   const loadLearningPath = async () => {
     if (!pathUploadId) return;
     setPathLoading(true);
     try {
-      const res = await api.get(`/uploads/learning-path/recommend`, { params: { upload_id: pathUploadId } });
+      const res = await api.get('/uploads/learning-path/recommend', { params: { upload_id: pathUploadId } });
       setLearningPath(res.data);
-    } catch { setLearningPath(null); }
+    } catch {
+      setLearningPath(null);
+    }
     setPathLoading(false);
   };
 
-  // Generate forgetting curve data (Ebbinghaus model)
   const forgettingCurveData = [];
   for (let day = 0; day <= 30; day++) {
     const noReview = Math.round(100 * Math.exp(-0.3 * day));
@@ -67,7 +117,7 @@ export default function StatsPage() {
     );
   }
 
-  const statusData = Object.entries(stats.uploads_by_status).map(([name, value]) => ({ name, value }));
+  const statusData = Object.entries(stats.uploads_by_status || {}).map(([name, value]) => ({ name, value }));
   const fcPercent = stats.total_flashcards > 0 ? Math.round((stats.known_flashcards / stats.total_flashcards) * 100) : 0;
 
   return (
@@ -76,7 +126,12 @@ export default function StatsPage() {
       <main className="max-w-5xl mx-auto px-4 py-8">
         <h2 className="text-lg font-semibold mb-6 dark:text-white">Learning Statistics</h2>
 
-        {/* Summary Cards */}
+        {error && (
+          <div className="bg-yellow-50 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200 rounded-lg p-3 text-sm mb-6">
+            {error}
+          </div>
+        )}
+
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           {[
             { label: 'Total Uploads', value: stats.total_uploads },
@@ -91,18 +146,16 @@ export default function StatsPage() {
           ))}
         </div>
 
-        {/* Study Heatmap */}
         <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-5 mb-8">
           <h3 className="text-sm font-semibold mb-4 dark:text-white">Study Activity</h3>
           <StudyHeatmap data={heatmapData} />
         </div>
 
-        {/* Charts Row */}
         <div className="grid md:grid-cols-2 gap-6 mb-8">
           <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-5">
             <h3 className="text-sm font-semibold mb-4 dark:text-white">Uploads Over Time</h3>
             <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={stats.uploads_by_date}>
+              <BarChart data={stats.uploads_by_date || []}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="date" tick={{ fontSize: 11 }} />
                 <YAxis allowDecimals={false} />
@@ -129,7 +182,6 @@ export default function StatsPage() {
           </div>
         </div>
 
-        {/* Learning Progress & Forgetting Curve */}
         <div className="grid md:grid-cols-2 gap-6 mb-8">
           <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-5">
             <h3 className="text-sm font-semibold mb-4 dark:text-white">Learning Progress</h3>
@@ -164,7 +216,6 @@ export default function StatsPage() {
           </div>
         </div>
 
-        {/* Flashcard Mastery */}
         <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-5 mb-8">
           <h3 className="text-sm font-semibold mb-3 dark:text-white">Flashcard Mastery</h3>
           <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-4">
@@ -173,7 +224,6 @@ export default function StatsPage() {
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">{fcPercent}% mastered ({stats.known_flashcards} of {stats.total_flashcards})</p>
         </div>
 
-        {/* Learning Path */}
         <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-5 mb-8">
           <h3 className="text-sm font-semibold mb-4 dark:text-white">AI Learning Path</h3>
           <div className="flex gap-2 mb-4">
@@ -208,7 +258,6 @@ export default function StatsPage() {
           )}
         </div>
 
-        {/* Usage Quota */}
         <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-5">
           <h3 className="text-sm font-semibold mb-3 dark:text-white">Usage Quota</h3>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">

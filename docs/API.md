@@ -2,605 +2,333 @@
 
 ## Base URL
 
-```
-http://localhost:8000/api
+```text
+http://127.0.0.1:8000/api
 ```
 
 ## Authentication
 
-All endpoints except `POST /api/auth/register` and `POST /api/auth/login` require a Bearer token in the `Authorization` header.
+All endpoints except the public auth endpoints require:
 
-```
+```text
 Authorization: Bearer <access_token>
 ```
 
-Tokens are obtained via the login endpoint and are JWT-based.
+## Health check
 
-## Rate Limiting
+```text
+GET /api/health
+```
 
-Several endpoints enforce rate limits:
+Response:
+
+```json
+{ "status": "ok" }
+```
+
+## Rate-limited endpoints
 
 | Endpoint | Limit |
 |---|---|
-| `POST /api/auth/register` | 3 requests/minute |
-| `POST /api/auth/login` | 5 requests/minute |
-| `POST /api/uploads/` | 10 requests/minute |
-| `POST /api/uploads/batch` | 5 requests/minute |
+| `POST /api/auth/register` | 3/minute |
+| `POST /api/auth/login` | 5/minute |
+| `POST /api/uploads/` | 10/minute |
+| `POST /api/uploads/batch` | 5/minute |
 
-## Allowed File Types
+## Supported upload file types
 
-Uploads accept the following extensions: `pdf`, `mp3`, `wav`, `pptx`, `ppt`, `docx`, `png`, `jpg`, `jpeg`.
-
-## Common Error Responses
-
-All error responses follow this format:
-
-```json
-{
-  "detail": "Error message describing what went wrong"
-}
+```text
+pdf, mp3, wav, mp4, mov, pptx, ppt, docx, png, jpg, jpeg
 ```
 
-| Status Code | Meaning |
-|---|---|
-| 400 | Bad Request -- Invalid input or business rule violation |
-| 401 | Unauthorized -- Missing or invalid token |
-| 403 | Forbidden -- Insufficient permissions |
-| 404 | Not Found -- Resource does not exist |
-| 429 | Too Many Requests -- Rate limit exceeded |
+## Common response notes
+
+- Upload detail, export, knowledge graph, comments, and chat are readable by:
+  - owner
+  - admin
+  - direct share recipient
+  - group member for group-shared files
+  - public viewers for `is_shared=true` uploads
+- Summary / concept / flashcard editing remains owner-only.
 
 ---
 
-## Endpoints
+## Auth (`/api/auth`)
 
-### Auth (`/api/auth`)
+### `POST /auth/register`
 
----
+Create a user.
 
-#### POST /api/auth/register
-
-Register a new user account.
-
-**Auth required:** No
-
-**Rate limit:** 3 requests/minute
-
-**Request Body (JSON):**
+Request JSON:
 
 ```json
 {
-  "username": "string (required)",
-  "email": "string (required)",
-  "password": "string (required, min 6 characters)"
+  "username": "alice",
+  "email": "alice@example.com",
+  "password": "123456"
 }
 ```
 
-**Response (200):**
+Response:
 
 ```json
 {
   "id": 1,
-  "username": "johndoe",
-  "email": "john@example.com"
+  "username": "alice",
+  "email": "alice@example.com"
 }
 ```
 
-**Error Responses:**
+### `POST /auth/login`
 
-| Status | Detail |
-|---|---|
-| 400 | `"Username already exists"` |
-| 400 | `"Email already exists"` |
-| 422 | Validation error (password too short, invalid email, etc.) |
+Login via form-urlencoded.
 
----
+Form fields:
 
-#### POST /api/auth/login
+- `username`
+- `password`
 
-Authenticate and receive an access token. Uses OAuth2 password form encoding.
-
-**Auth required:** No
-
-**Rate limit:** 5 requests/minute
-
-**Request Body (application/x-www-form-urlencoded):**
-
-| Field | Type | Description |
-|---|---|---|
-| `username` | string | The user's username |
-| `password` | string | The user's password |
-
-**Response (200):**
+Response:
 
 ```json
 {
-  "access_token": "eyJhbGciOiJIUzI1NiIs...",
+  "access_token": "jwt-token",
   "token_type": "bearer"
 }
 ```
 
-**Error Responses:**
+### `GET /auth/me`
 
-| Status | Detail |
-|---|---|
-| 401 | `"Incorrect username or password"` |
-
----
-
-#### GET /api/auth/me
-
-Get the currently authenticated user's profile.
-
-**Auth required:** Yes (Bearer token)
-
-**Response (200):**
+Response:
 
 ```json
 {
   "id": 1,
-  "username": "johndoe",
-  "email": "john@example.com",
+  "username": "alice",
+  "email": "alice@example.com",
   "is_admin": false
 }
 ```
 
----
+### `GET /auth/verify-email`
 
-### Uploads (`/api/uploads`)
+Query:
 
----
+- `token`
 
-#### GET /api/uploads/
+### `POST /auth/forgot-password`
 
-List all uploads for the current user. Supports filtering and sorting.
-
-**Auth required:** Yes
-
-**Query Parameters:**
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `search` | string | null | Filter by filename (case-insensitive partial match) |
-| `status` | string | null | Filter by status (`Pending`, `Processing`, `Completed`, `Failed`) |
-| `course_id` | integer | null | Filter by course ID |
-| `tag` | string | null | Filter by tag name |
-| `sort` | string | `"newest"` | Sort order: `newest`, `oldest`, `name`, `size` |
-
-**Response (200):**
+Request:
 
 ```json
-[
-  {
-    "id": 1,
-    "filename": "lecture-notes.pdf",
-    "file_type": "pdf",
-    "file_size": 204800,
-    "status": "Completed",
-    "error_message": null,
-    "course_id": 1,
-    "language": "en",
-    "created_at": "2026-01-15T10:30:00",
-    "updated_at": "2026-01-15T10:35:00"
-  }
-]
+{
+  "email": "alice@example.com"
+}
+```
+
+### `POST /auth/reset-password`
+
+Request:
+
+```json
+{
+  "token": "reset-token",
+  "new_password": "new-password"
+}
 ```
 
 ---
 
-#### POST /api/uploads/
+## Uploads (`/api/uploads`)
 
-Upload a single file. The file is processed asynchronously after upload.
+### `GET /uploads/`
 
-**Auth required:** Yes
+List current user's uploads.
 
-**Rate limit:** 10 requests/minute
+Query params:
 
-**Request Body (multipart/form-data):**
+- `search`
+- `status`
+- `course_id`
+- `tag`
+- `sort`
 
-| Field | Type | Description |
-|---|---|---|
-| `file` | file (required) | The file to upload |
-| `course_id` | integer (optional) | Associate with a course |
+Supported `sort` values:
 
-**Response (200):**
+- `-created_at` (default)
+- `created_at`
+- `filename`
+- `-filename`
+- `name`
+- `name_desc`
+- `oldest`
+- `size`
+- `-file_size`
+
+### `POST /uploads/`
+
+Single upload.
+
+Multipart fields:
+
+- `file`
+- `course_id` (optional)
+
+Response shape:
 
 ```json
 {
   "id": 1,
-  "filename": "lecture-notes.pdf",
+  "filename": "notes.pdf",
   "file_type": "pdf",
-  "file_size": 204800,
+  "file_size": 12345,
   "status": "Pending",
+  "is_shared": false,
   "error_message": null,
   "course_id": 1,
+  "course_name": "Physics",
   "language": "en",
-  "created_at": "2026-01-15T10:30:00",
-  "updated_at": "2026-01-15T10:30:00"
+  "created_at": "2026-04-26T01:00:00Z",
+  "updated_at": "2026-04-26T01:00:00Z"
 }
 ```
 
-**Error Responses:**
+### `POST /uploads/batch`
 
-| Status | Detail |
-|---|---|
-| 400 | `"Upload quota reached (N)"` |
-| 400 | `"Unsupported file type: .xyz"` |
-| 400 | `"File too large (max NMB)"` |
-| 400 | `"File content does not match its extension"` |
+Batch upload.
 
----
+Multipart fields:
 
-#### POST /api/uploads/batch
+- `files`
+- `course_id` (optional)
 
-Upload multiple files at once. Files that exceed size limits or have unsupported types are silently skipped.
+### `GET /uploads/{upload_id}`
 
-**Auth required:** Yes
+Readable by owner / shared user / group member / public viewer / admin.
 
-**Rate limit:** 5 requests/minute
-
-**Request Body (multipart/form-data):**
-
-| Field | Type | Description |
-|---|---|---|
-| `files` | file[] (required) | Multiple files to upload |
-| `course_id` | integer (optional) | Associate all uploads with a course |
-
-**Response (200):** Array of `UploadResponse` objects (same schema as single upload).
-
-**Error Responses:**
-
-| Status | Detail |
-|---|---|
-| 400 | `"Upload quota would be exceeded"` |
-
----
-
-#### GET /api/uploads/stats
-
-Get statistics about the current user's uploads and study activity.
-
-**Auth required:** Yes
-
-**Response (200):**
-
-```json
-{
-  "total_uploads": 12,
-  "completed_uploads": 10,
-  "total_flashcards": 150,
-  "known_flashcards": 85,
-  "total_concepts": 45,
-  "uploads_by_date": [
-    { "date": "2026-01-15", "count": 3 }
-  ],
-  "uploads_by_status": {
-    "Completed": 10,
-    "Pending": 1,
-    "Failed": 1
-  },
-  "study_activity_by_date": [
-    { "date": "2026-01-15", "count": 5 }
-  ]
-}
-```
-
----
-
-#### GET /api/uploads/quota
-
-Get the current user's upload quota and limits.
-
-**Auth required:** Yes
-
-**Response (200):**
-
-```json
-{
-  "uploads_used": 5,
-  "uploads_limit": 50,
-  "max_file_size_mb": 25,
-  "max_audio_minutes": 60,
-  "max_pdf_pages": 200
-}
-```
-
----
-
-#### GET /api/uploads/{upload_id}
-
-Get detailed information about a specific upload, including its summary, key concepts, and flashcards.
-
-**Auth required:** Yes
-
-**Path Parameters:**
-
-| Parameter | Type | Description |
-|---|---|---|
-| `upload_id` | integer | The upload ID |
-
-**Response (200):**
+Response shape:
 
 ```json
 {
   "id": 1,
-  "filename": "lecture-notes.pdf",
+  "user_id": 3,
+  "filename": "notes.pdf",
   "file_type": "pdf",
-  "file_size": 204800,
+  "file_size": 12345,
   "status": "Completed",
+  "is_shared": false,
   "error_message": null,
-  "transcript": "Full extracted text content...",
+  "transcript": "extracted text",
   "course_id": 1,
   "language": "en",
   "summary": {
-    "id": 1,
-    "content": "This lecture covers..."
+    "id": 10,
+    "content": "summary text"
   },
-  "key_concepts": [
-    {
-      "id": 1,
-      "title": "Machine Learning",
-      "description": "A subset of AI that...",
-      "citation": "Page 5, paragraph 2"
-    }
-  ],
-  "flashcards": [
-    {
-      "id": 1,
-      "question": "What is supervised learning?",
-      "answer": "A type of ML where...",
-      "is_known": false
-    }
-  ],
-  "created_at": "2026-01-15T10:30:00",
-  "updated_at": "2026-01-15T10:35:00"
+  "key_concepts": [],
+  "flashcards": [],
+  "created_at": "2026-04-26T01:00:00Z",
+  "updated_at": "2026-04-26T01:05:00Z"
 }
 ```
 
-**Error Responses:**
+### `DELETE /uploads/{upload_id}`
 
-| Status | Detail |
-|---|---|
-| 404 | `"Upload not found"` |
+Owner-only.
 
----
+### `POST /uploads/{upload_id}/retry`
 
-#### PATCH /api/uploads/{upload_id}
+Owner-only. Resets status to `Pending` and requeues processing.
 
-Update an upload's course assignment.
+### `GET /uploads/{upload_id}/knowledge-graph`
 
-**Auth required:** Yes
+Readable by owner / shared user / group member / public viewer / admin.
 
-**Query Parameters:**
-
-| Parameter | Type | Description |
-|---|---|---|
-| `course_id` | integer | The new course ID (or null to unassign) |
-
-**Response (200):** `UploadResponse` object.
-
-**Error Responses:**
-
-| Status | Detail |
-|---|---|
-| 404 | `"Upload not found"` |
-
----
-
-#### POST /api/uploads/{upload_id}/retry
-
-Retry processing a failed upload.
-
-**Auth required:** Yes
-
-**Path Parameters:**
-
-| Parameter | Type | Description |
-|---|---|---|
-| `upload_id` | integer | The upload ID |
-
-**Response (200):** `UploadResponse` object with status reset to `"Pending"`.
-
-**Error Responses:**
-
-| Status | Detail |
-|---|---|
-| 404 | `"Upload not found"` |
-| 400 | `"Only failed uploads can be retried"` |
-
----
-
-#### DELETE /api/uploads/{upload_id}
-
-Delete an upload and its associated file from disk.
-
-**Auth required:** Yes
-
-**Path Parameters:**
-
-| Parameter | Type | Description |
-|---|---|---|
-| `upload_id` | integer | The upload ID |
-
-**Response (200):**
+Response:
 
 ```json
 {
-  "detail": "Deleted"
+  "nodes": [],
+  "edges": []
 }
 ```
 
-**Error Responses:**
+### `GET /uploads/{upload_id}/export`
 
-| Status | Detail |
-|---|---|
-| 404 | `"Upload not found"` |
+Readable by owner / shared user / group member / public viewer / admin.
 
----
+Returns Markdown as plain text with `Content-Disposition`.
 
-#### GET /api/uploads/{upload_id}/export
+### `GET /uploads/stats`
 
-Export an upload's study materials (summary, key concepts, flashcards) as a Markdown file download.
+Current user's dashboard stats.
 
-**Auth required:** Yes
+### `GET /uploads/quota`
 
-**Path Parameters:**
-
-| Parameter | Type | Description |
-|---|---|---|
-| `upload_id` | integer | The upload ID |
-
-**Query Parameters:**
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `fmt` | string | `"markdown"` | Export format |
-
-**Response (200):** Plain text Markdown file with `Content-Disposition: attachment` header.
-
-**Error Responses:**
-
-| Status | Detail |
-|---|---|
-| 404 | `"Upload not found"` |
-| 400 | `"Upload not completed yet"` |
-
----
-
-#### PATCH /api/uploads/summary/{summary_id}
-
-Edit an AI-generated summary.
-
-**Auth required:** Yes
-
-**Path Parameters:**
-
-| Parameter | Type | Description |
-|---|---|---|
-| `summary_id` | integer | The summary ID |
-
-**Request Body (JSON):**
+Response:
 
 ```json
 {
-  "content": "Updated summary text..."
+  "uploads_used": 4,
+  "uploads_limit": 100,
+  "max_file_size_mb": 50,
+  "max_audio_minutes": 120,
+  "max_pdf_pages": 500
 }
 ```
 
-**Response (200):**
+### `GET /uploads/learning-path/recommend`
+
+Query:
+
+- `upload_id` (optional)
+
+If omitted, it uses the user's most recent completed uploads.
+
+### `PATCH /uploads/summary/{summary_id}`
+
+Owner-only.
+
+Request:
 
 ```json
 {
-  "id": 1,
-  "content": "Updated summary text..."
+  "content": "updated summary"
 }
 ```
 
-**Error Responses:**
+### `PATCH /uploads/concepts/{concept_id}`
 
-| Status | Detail |
-|---|---|
-| 404 | `"Summary not found"` |
+Owner-only.
 
----
-
-#### PATCH /api/uploads/flashcards/{flashcard_id}
-
-Edit an AI-generated flashcard.
-
-**Auth required:** Yes
-
-**Path Parameters:**
-
-| Parameter | Type | Description |
-|---|---|---|
-| `flashcard_id` | integer | The flashcard ID |
-
-**Request Body (JSON):**
+Request:
 
 ```json
 {
-  "question": "Updated question? (optional)",
-  "answer": "Updated answer (optional)",
+  "title": "optional",
+  "description": "optional"
+}
+```
+
+### `PATCH /uploads/flashcards/{flashcard_id}`
+
+Owner-only.
+
+Request:
+
+```json
+{
+  "question": "optional",
+  "answer": "optional",
   "is_known": true
 }
 ```
 
-All fields are optional; only provided fields are updated.
+### `POST /uploads/flashcards/{flashcard_id}/review`
 
-**Response (200):**
+Owner-only SM-2 review.
 
-```json
-{
-  "id": 1,
-  "question": "What is ML?",
-  "answer": "Machine Learning is...",
-  "is_known": true
-}
-```
-
-**Error Responses:**
-
-| Status | Detail |
-|---|---|
-| 404 | `"Flashcard not found"` |
-
----
-
-#### PATCH /api/uploads/concepts/{concept_id}
-
-Edit an AI-generated key concept.
-
-**Auth required:** Yes
-
-**Path Parameters:**
-
-| Parameter | Type | Description |
-|---|---|---|
-| `concept_id` | integer | The concept ID |
-
-**Request Body (JSON):**
-
-```json
-{
-  "title": "Updated title (optional)",
-  "description": "Updated description (optional)"
-}
-```
-
-All fields are optional; only provided fields are updated.
-
-**Response (200):**
-
-```json
-{
-  "id": 1,
-  "title": "Machine Learning",
-  "description": "Updated description...",
-  "citation": "Page 5"
-}
-```
-
-**Error Responses:**
-
-| Status | Detail |
-|---|---|
-| 404 | `"Concept not found"` |
-
----
-
-#### POST /api/uploads/flashcards/{flashcard_id}/review
-
-Submit a review for a flashcard using the SM-2 spaced repetition algorithm.
-
-**Auth required:** Yes
-
-**Path Parameters:**
-
-| Parameter | Type | Description |
-|---|---|---|
-| `flashcard_id` | integer | The flashcard ID |
-
-**Request Body (JSON):**
+Request:
 
 ```json
 {
@@ -608,271 +336,31 @@ Submit a review for a flashcard using the SM-2 spaced repetition algorithm.
 }
 ```
 
-The `quality` field is an integer from 0 to 5:
+### `GET /uploads/courses`
 
-| Value | Meaning |
-|---|---|
-| 0 | Complete blackout |
-| 1 | Incorrect, but remembered upon seeing answer |
-| 2 | Incorrect, but answer seemed easy to recall |
-| 3 | Correct with serious difficulty |
-| 4 | Correct after hesitation |
-| 5 | Perfect response |
+List current user's courses.
 
-**Response (200):**
+### `POST /uploads/courses`
+
+Request:
 
 ```json
 {
-  "flashcard_id": 1,
-  "next_review": "2026-01-18T10:30:00",
-  "easiness": 2.6,
-  "interval_days": 3,
-  "repetitions": 2
+  "name": "Physics"
 }
 ```
 
-**Error Responses:**
+### `DELETE /uploads/courses/{course_id}`
 
-| Status | Detail |
-|---|---|
-| 404 | `"Flashcard not found"` |
-| 400 | `"Quality must be 0-5"` |
+Deletes the course and unassigns the user's uploads from it.
 
----
+### `GET /uploads/tags/list`
 
-#### GET /api/uploads/flashcards/due
+List current user's tags.
 
-Get all flashcards that are due for review based on the SM-2 schedule.
+### `POST /uploads/tags`
 
-**Auth required:** Yes
-
-**Response (200):**
-
-```json
-[
-  {
-    "id": 1,
-    "question": "What is supervised learning?",
-    "answer": "A type of ML where...",
-    "upload_id": 1,
-    "filename": "lecture-notes.pdf",
-    "next_review": "2026-01-15T10:30:00",
-    "easiness": 2.5,
-    "interval_days": 1,
-    "repetitions": 1
-  }
-]
-```
-
-Flashcards that have never been reviewed are also included (with `next_review: null`).
-
----
-
-#### GET /api/uploads/{upload_id}/knowledge-graph
-
-Generate a knowledge graph from the upload's transcript using AI.
-
-**Auth required:** Yes
-
-**Path Parameters:**
-
-| Parameter | Type | Description |
-|---|---|---|
-| `upload_id` | integer | The upload ID |
-
-**Response (200):** JSON object representing the knowledge graph (nodes and edges). Structure depends on AI output.
-
-**Error Responses:**
-
-| Status | Detail |
-|---|---|
-| 404 | `"Upload not found"` |
-| 400 | `"No transcript available"` |
-
----
-
-#### GET /api/uploads/learning-path/recommend
-
-Generate a personalized learning path recommendation based on all completed uploads and known flashcards.
-
-**Auth required:** Yes
-
-**Response (200):** JSON array of learning path recommendations. Structure depends on AI output. Returns an empty array if no completed uploads exist.
-
----
-
-#### POST /api/uploads/study-sessions
-
-Record a study session.
-
-**Auth required:** Yes
-
-**Request Body (JSON):**
-
-```json
-{
-  "upload_id": 1,
-  "activity_type": "flashcard_review",
-  "cards_reviewed": 20,
-  "cards_known": 15,
-  "duration_seconds": 600
-}
-```
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `upload_id` | integer | No | Associated upload ID |
-| `activity_type` | string | Yes | Type of activity (e.g., `"flashcard_review"`, `"reading"`) |
-| `cards_reviewed` | integer | No | Number of cards reviewed (default: 0) |
-| `cards_known` | integer | No | Number of cards marked known (default: 0) |
-| `duration_seconds` | integer | No | Session duration in seconds (default: 0) |
-
-**Response (200):**
-
-```json
-{
-  "id": 1,
-  "upload_id": 1,
-  "activity_type": "flashcard_review",
-  "cards_reviewed": 20,
-  "cards_known": 15,
-  "duration_seconds": 600,
-  "created_at": "2026-01-15T10:30:00"
-}
-```
-
----
-
-#### GET /api/uploads/study-sessions/progress
-
-Get study progress aggregated by date.
-
-**Auth required:** Yes
-
-**Query Parameters:**
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `days` | integer | 30 | Number of most recent days to return |
-
-**Response (200):**
-
-```json
-[
-  {
-    "date": "2026-01-15",
-    "cards_reviewed": 40,
-    "cards_known": 30,
-    "duration_minutes": 25,
-    "sessions": 3
-  }
-]
-```
-
----
-
-#### GET /api/uploads/courses
-
-List all courses for the current user.
-
-**Auth required:** Yes
-
-**Response (200):**
-
-```json
-[
-  {
-    "id": 1,
-    "name": "Introduction to AI",
-    "upload_count": 5,
-    "created_at": "2026-01-10T08:00:00"
-  }
-]
-```
-
----
-
-#### POST /api/uploads/courses
-
-Create a new course.
-
-**Auth required:** Yes
-
-**Request Body (JSON):**
-
-```json
-{
-  "name": "Introduction to AI"
-}
-```
-
-**Response (200):**
-
-```json
-{
-  "id": 1,
-  "name": "Introduction to AI",
-  "upload_count": 0,
-  "created_at": "2026-01-10T08:00:00"
-}
-```
-
----
-
-#### DELETE /api/uploads/courses/{course_id}
-
-Delete a course. Uploads assigned to this course will have their `course_id` set to null.
-
-**Auth required:** Yes
-
-**Path Parameters:**
-
-| Parameter | Type | Description |
-|---|---|---|
-| `course_id` | integer | The course ID |
-
-**Response (200):**
-
-```json
-{
-  "detail": "Deleted"
-}
-```
-
-**Error Responses:**
-
-| Status | Detail |
-|---|---|
-| 404 | `"Course not found"` |
-
----
-
-#### GET /api/uploads/tags/list
-
-List all tags for the current user.
-
-**Auth required:** Yes
-
-**Response (200):**
-
-```json
-[
-  {
-    "id": 1,
-    "name": "important"
-  }
-]
-```
-
----
-
-#### POST /api/uploads/tags
-
-Create a new tag. If a tag with the same name already exists, the existing tag is returned.
-
-**Auth required:** Yes
-
-**Request Body (JSON):**
+Request:
 
 ```json
 {
@@ -880,868 +368,361 @@ Create a new tag. If a tag with the same name already exists, the existing tag i
 }
 ```
 
-**Response (200):**
+### `DELETE /uploads/tags/{tag_id}`
 
-```json
-{
-  "id": 1,
-  "name": "important"
-}
-```
+Delete one tag.
 
 ---
 
-#### DELETE /api/uploads/tags/{tag_id}
+## Chat (`/api/chat`)
 
-Delete a tag.
+These endpoints require upload read access and a transcript.
 
-**Auth required:** Yes
+Conversations are per-user even when multiple users can read the same upload.
 
-**Path Parameters:**
+### `POST /chat/{upload_id}`
 
-| Parameter | Type | Description |
-|---|---|---|
-| `tag_id` | integer | The tag ID |
-
-**Response (200):**
+Request:
 
 ```json
 {
-  "detail": "Deleted"
-}
-```
-
-**Error Responses:**
-
-| Status | Detail |
-|---|---|
-| 404 | `"Tag not found"` |
-
----
-
-#### POST /api/uploads/{upload_id}/tags/{tag_id}
-
-Add a tag to an upload.
-
-**Auth required:** Yes
-
-**Path Parameters:**
-
-| Parameter | Type | Description |
-|---|---|---|
-| `upload_id` | integer | The upload ID |
-| `tag_id` | integer | The tag ID |
-
-**Response (200):**
-
-```json
-{
-  "detail": "Tag added"
-}
-```
-
-**Error Responses:**
-
-| Status | Detail |
-|---|---|
-| 404 | `"Upload not found"` |
-| 404 | `"Tag not found"` |
-
----
-
-#### DELETE /api/uploads/{upload_id}/tags/{tag_id}
-
-Remove a tag from an upload.
-
-**Auth required:** Yes
-
-**Path Parameters:**
-
-| Parameter | Type | Description |
-|---|---|---|
-| `upload_id` | integer | The upload ID |
-| `tag_id` | integer | The tag ID |
-
-**Response (200):**
-
-```json
-{
-  "detail": "Tag removed"
-}
-```
-
-**Error Responses:**
-
-| Status | Detail |
-|---|---|
-| 404 | `"Upload not found"` |
-| 404 | `"Tag not found"` |
-
----
-
-### Chat (`/api/chat`)
-
----
-
-#### POST /api/chat/{upload_id}
-
-Send a message to the AI assistant about a specific upload. The AI uses the upload's transcript as context. Creates a new conversation if `conversation_id` is not provided, or continues an existing one.
-
-**Auth required:** Yes
-
-**Path Parameters:**
-
-| Parameter | Type | Description |
-|---|---|---|
-| `upload_id` | integer | The upload ID to chat about |
-
-**Request Body (JSON):**
-
-```json
-{
-  "message": "Can you explain the main concept from this lecture?",
+  "message": "Explain the main point",
   "conversation_id": null
 }
 ```
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `message` | string | Yes | The user's message |
-| `conversation_id` | integer | No | Existing conversation ID to continue (null creates a new conversation) |
-
-**Response (200):**
+Response:
 
 ```json
 {
-  "id": 42,
+  "id": 12,
   "role": "assistant",
-  "content": "The main concept discussed in this lecture is...",
-  "created_at": "2026-01-15T10:35:00"
+  "content": "answer text",
+  "created_at": "2026-04-26T01:10:00Z"
 }
 ```
 
-**Error Responses:**
+### `GET /chat/{upload_id}/conversations`
 
-| Status | Detail |
-|---|---|
-| 404 | `"Upload not found"` |
-| 400 | `"Upload has no transcript yet"` |
-| 404 | `"Conversation not found"` |
+List current user's conversations for this upload.
 
----
+### `GET /chat/{upload_id}/conversations/{conv_id}`
 
-#### GET /api/chat/{upload_id}/conversations
+Returns one conversation and all messages.
 
-List all conversations for a specific upload.
+### `DELETE /chat/{upload_id}/conversations/{conv_id}`
 
-**Auth required:** Yes
-
-**Path Parameters:**
-
-| Parameter | Type | Description |
-|---|---|---|
-| `upload_id` | integer | The upload ID |
-
-**Response (200):**
-
-```json
-[
-  {
-    "id": 1,
-    "upload_id": 1,
-    "title": "Can you explain the main concept...",
-    "created_at": "2026-01-15T10:30:00",
-    "messages": []
-  }
-]
-```
-
-Note: The `messages` array is populated when retrieving a single conversation.
+Deletes the current user's conversation.
 
 ---
 
-#### GET /api/chat/{upload_id}/conversations/{conv_id}
+## Share (`/api/share`)
 
-Get a specific conversation with all its messages.
+### Sharing semantics
 
-**Auth required:** Yes
+- `is_shared=false` does not block direct shares or group shares.
+- `Private + group share` means only group members can access the file.
+- `is_shared=true` makes the upload globally visible in shared materials.
 
-**Path Parameters:**
+### `POST /share/`
 
-| Parameter | Type | Description |
-|---|---|---|
-| `upload_id` | integer | The upload ID |
-| `conv_id` | integer | The conversation ID |
+Create or update a share.
 
-**Response (200):**
-
-```json
-{
-  "id": 1,
-  "upload_id": 1,
-  "title": "Can you explain the main concept...",
-  "created_at": "2026-01-15T10:30:00",
-  "messages": [
-    {
-      "id": 1,
-      "role": "user",
-      "content": "Can you explain the main concept from this lecture?",
-      "created_at": "2026-01-15T10:30:00"
-    },
-    {
-      "id": 2,
-      "role": "assistant",
-      "content": "The main concept discussed in this lecture is...",
-      "created_at": "2026-01-15T10:30:05"
-    }
-  ]
-}
-```
-
-**Error Responses:**
-
-| Status | Detail |
-|---|---|
-| 404 | `"Conversation not found"` |
-
----
-
-#### DELETE /api/chat/{upload_id}/conversations/{conv_id}
-
-Delete a conversation and all its messages.
-
-**Auth required:** Yes
-
-**Path Parameters:**
-
-| Parameter | Type | Description |
-|---|---|---|
-| `upload_id` | integer | The upload ID |
-| `conv_id` | integer | The conversation ID |
-
-**Response (200):**
-
-```json
-{
-  "detail": "Conversation deleted"
-}
-```
-
-**Error Responses:**
-
-| Status | Detail |
-|---|---|
-| 404 | `"Conversation not found"` |
-
----
-
-### Share (`/api/share`)
-
----
-
-#### POST /api/share/
-
-Share an upload with another user or a study group.
-
-**Auth required:** Yes
-
-**Request Body (JSON):**
+Request:
 
 ```json
 {
   "upload_id": 1,
   "shared_with": 2,
+  "shared_with_username": null,
   "group_id": null,
-  "message": "Check out these notes!"
+  "message": "optional note",
+  "permission": "read"
 }
 ```
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `upload_id` | integer | Yes | The upload to share |
-| `shared_with` | integer | No | User ID to share with (null for public/group share) |
-| `group_id` | integer | No | Study group ID to share with |
-| `message` | string | No | Optional message to include |
+Notes:
 
-**Response (200):**
+- set `shared_with`
+- or set `shared_with_username`
+- or set `group_id`
+
+### `GET /share/mine`
+
+Query:
+
+- `upload_id` (optional)
+
+Lists shares created by the current user.
+
+### `PATCH /share/uploads/{upload_id}/visibility`
+
+Owner-only public/private toggle.
+
+Request:
 
 ```json
 {
-  "id": 1,
+  "is_shared": true
+}
+```
+
+Response:
+
+```json
+{
   "upload_id": 1,
-  "shared_by": 1,
-  "shared_with": 2,
-  "group_id": null,
-  "message": "Check out these notes!",
-  "created_at": "2026-01-15T10:30:00",
-  "filename": "lecture-notes.pdf",
-  "owner_name": "johndoe"
+  "is_shared": true
 }
 ```
 
-**Error Responses:**
+### `GET /share/shared-with-me`
 
-| Status | Detail |
-|---|---|
-| 404 | `"Upload not found or not yours"` |
+Returns:
 
----
+- direct shares to the current user
+- explicit public share records
+- group shares for groups the user belongs to
+- uploads whose `is_shared=true`
 
-#### GET /api/share/shared-with-me
+### `DELETE /share/{share_id}`
 
-List all uploads shared with the current user (including public shares).
+Only the share creator can remove it.
 
-**Auth required:** Yes
+### `POST /share/{upload_id}/comments`
 
-**Response (200):**
+Requires upload read access.
 
-```json
-[
-  {
-    "id": 1,
-    "upload_id": 1,
-    "shared_by": 2,
-    "shared_with": 1,
-    "group_id": null,
-    "message": "Check out these notes!",
-    "created_at": "2026-01-15T10:30:00",
-    "filename": "lecture-notes.pdf",
-    "owner_name": "janedoe"
-  }
-]
-```
-
----
-
-#### DELETE /api/share/{share_id}
-
-Remove a share. Only the user who created the share can delete it.
-
-**Auth required:** Yes
-
-**Path Parameters:**
-
-| Parameter | Type | Description |
-|---|---|---|
-| `share_id` | integer | The share ID |
-
-**Response (200):**
+Request:
 
 ```json
 {
-  "detail": "Share removed"
+  "content": "Useful notes"
 }
 ```
 
-**Error Responses:**
+### `GET /share/{upload_id}/comments`
 
-| Status | Detail |
-|---|---|
-| 404 | `"Share not found"` |
+Requires upload read access.
+
+### `DELETE /share/comments/{comment_id}`
+
+Only the comment author can delete it.
 
 ---
 
-#### POST /api/share/{upload_id}/comments
+## Study groups (`/api/share/groups...`)
 
-Add a comment to a shared upload.
+### `POST /share/groups`
 
-**Auth required:** Yes
-
-**Path Parameters:**
-
-| Parameter | Type | Description |
-|---|---|---|
-| `upload_id` | integer | The upload ID |
-
-**Request Body (JSON):**
+Request:
 
 ```json
 {
-  "content": "Great summary of the topic!"
+  "name": "Physics Group",
+  "description": "optional",
+  "join_mode": "open"
 }
 ```
 
-**Response (200):**
+`join_mode`:
+
+- `open`
+- `approval`
+
+### `GET /share/groups`
+
+Groups current user belongs to.
+
+### `GET /share/groups/all`
+
+All discoverable groups.
+
+### `PATCH /share/groups/{group_id}`
+
+Owner-only.
+
+Request:
 
 ```json
 {
-  "id": 1,
-  "upload_id": 1,
-  "user_id": 1,
-  "content": "Great summary of the topic!",
-  "created_at": "2026-01-15T10:30:00",
-  "username": "johndoe"
+  "join_mode": "approval"
 }
 ```
 
----
+### `GET /share/groups/{group_id}/members`
 
-#### GET /api/share/{upload_id}/comments
+Member-only.
 
-List all comments on an upload, ordered by creation time (ascending).
+### `POST /share/groups/{group_id}/join`
 
-**Auth required:** Yes
+- joins immediately for `open`
+- creates a join request for `approval`
 
-**Path Parameters:**
+### `POST /share/groups/{group_id}/leave`
 
-| Parameter | Type | Description |
-|---|---|---|
-| `upload_id` | integer | The upload ID |
+Non-owner member leaves the group.
 
-**Response (200):**
+### `DELETE /share/groups/{group_id}`
 
-```json
-[
-  {
-    "id": 1,
-    "upload_id": 1,
-    "user_id": 1,
-    "content": "Great summary of the topic!",
-    "created_at": "2026-01-15T10:30:00",
-    "username": "johndoe"
-  }
-]
-```
+Owner-only delete.
 
----
+### `GET /share/groups/{group_id}/join-requests`
 
-#### DELETE /api/share/comments/{comment_id}
+Owner-only list of pending join requests.
 
-Delete a comment. Only the comment author can delete it.
+### `POST /share/groups/{group_id}/join-requests/{request_id}/approve`
 
-**Auth required:** Yes
+Owner-only.
 
-**Path Parameters:**
+### `POST /share/groups/{group_id}/join-requests/{request_id}/reject`
 
-| Parameter | Type | Description |
-|---|---|---|
-| `comment_id` | integer | The comment ID |
+Owner-only.
 
-**Response (200):**
+### `POST /share/groups/{group_id}/invite`
+
+Member-only invite by username or email.
+
+Request:
 
 ```json
 {
-  "detail": "Comment deleted"
+  "username_or_email": "alice"
 }
 ```
 
-**Error Responses:**
+### `GET /share/groups/invites/mine`
 
-| Status | Detail |
-|---|---|
-| 404 | `"Comment not found"` |
+Current user's pending invites.
 
----
+### `POST /share/groups/invites/{invite_id}/accept`
 
-#### POST /api/share/groups
+### `POST /share/groups/invites/{invite_id}/decline`
 
-Create a new study group. The creator is automatically added as the owner.
+### `POST /share/groups/{group_id}/messages`
 
-**Auth required:** Yes
+Member-only.
 
-**Request Body (JSON):**
+Request:
 
 ```json
 {
-  "name": "CS101 Study Group",
-  "description": "Study group for Computer Science 101"
+  "content": "hello team"
 }
 ```
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `name` | string | Yes | Group name |
-| `description` | string | No | Group description |
+### `GET /share/groups/{group_id}/messages`
 
-**Response (200):**
+Member-only. Returns up to 200 messages.
+
+### `POST /share/groups/{group_id}/files`
+
+Share one of the current user's uploads into the group.
+
+Request:
 
 ```json
 {
-  "id": 1,
-  "name": "CS101 Study Group",
-  "description": "Study group for Computer Science 101",
-  "owner_id": 1,
-  "created_at": "2026-01-15T10:30:00",
-  "member_count": 1,
-  "owner_name": "johndoe"
+  "upload_id": 10
 }
 ```
 
----
+### `GET /share/groups/{group_id}/files`
 
-#### GET /api/share/groups
+Member-only. Lists group-shared files.
 
-List study groups the current user is a member of.
+### `DELETE /share/groups/{group_id}/files/{share_id}`
 
-**Auth required:** Yes
+Allowed for:
 
-**Response (200):**
-
-```json
-[
-  {
-    "id": 1,
-    "name": "CS101 Study Group",
-    "description": "Study group for Computer Science 101",
-    "owner_id": 1,
-    "created_at": "2026-01-15T10:30:00",
-    "member_count": 5,
-    "owner_name": "johndoe"
-  }
-]
-```
+- the original sharer
+- the group owner
 
 ---
 
-#### GET /api/share/groups/all
+## Admin (`/api/admin`)
 
-List all study groups (discoverable by any authenticated user).
+All admin endpoints require `is_admin=true`.
 
-**Auth required:** Yes
+There is no automatic default admin bootstrap in the application.
 
-**Response (200):** Same format as `GET /api/share/groups`.
+### `GET /admin/users`
 
----
+List users with:
 
-#### GET /api/share/groups/{group_id}/members
+- `id`
+- `username`
+- `email`
+- `is_admin`
+- `is_active`
+- `created_at`
+- `upload_count`
 
-List all members of a study group. Only accessible to group members.
+### `PATCH /admin/users/{user_id}/toggle`
 
-**Auth required:** Yes
+Toggle active status.
 
-**Path Parameters:**
+Admins cannot disable themselves.
 
-| Parameter | Type | Description |
-|---|---|---|
-| `group_id` | integer | The group ID |
+### `DELETE /admin/users/{user_id}`
 
-**Response (200):**
+Deletes the user and their upload files.
 
-```json
-[
-  {
-    "id": 1,
-    "user_id": 1,
-    "role": "owner",
-    "joined_at": "2026-01-15T10:30:00",
-    "username": "johndoe"
-  },
-  {
-    "id": 2,
-    "user_id": 3,
-    "role": "member",
-    "joined_at": "2026-01-16T09:00:00",
-    "username": "janedoe"
-  }
-]
-```
+Admins cannot delete themselves.
 
-**Error Responses:**
+### `GET /admin/uploads`
 
-| Status | Detail |
-|---|---|
-| 403 | `"Not a member of this group"` |
+List uploads across all users.
 
----
+Query:
 
-#### POST /api/share/groups/{group_id}/join
+- `search`
+- `status`
+- `user_id`
 
-Join a study group.
+Response items include:
 
-**Auth required:** Yes
+- `id`
+- `filename`
+- `file_type`
+- `file_size`
+- `status`
+- `is_shared`
+- `created_at`
+- `username`
 
-**Path Parameters:**
+### `PATCH /admin/uploads/{upload_id}/toggle-share`
 
-| Parameter | Type | Description |
-|---|---|---|
-| `group_id` | integer | The group ID |
+Toggle an upload's public flag as admin.
 
-**Response (200):**
+### `DELETE /admin/uploads/{upload_id}`
+
+Delete any upload.
+
+### `GET /admin/stats`
+
+Response:
 
 ```json
 {
-  "detail": "Joined group"
-}
-```
-
-**Error Responses:**
-
-| Status | Detail |
-|---|---|
-| 404 | `"Group not found"` |
-| 400 | `"Already a member"` |
-
----
-
-#### POST /api/share/groups/{group_id}/leave
-
-Leave a study group. The group owner cannot leave; they must delete the group instead.
-
-**Auth required:** Yes
-
-**Path Parameters:**
-
-| Parameter | Type | Description |
-|---|---|---|
-| `group_id` | integer | The group ID |
-
-**Response (200):**
-
-```json
-{
-  "detail": "Left group"
-}
-```
-
-**Error Responses:**
-
-| Status | Detail |
-|---|---|
-| 404 | `"Not a member"` |
-| 400 | `"Owner cannot leave. Delete the group instead."` |
-
----
-
-#### DELETE /api/share/groups/{group_id}
-
-Delete a study group. Only the group owner can delete it. All shares associated with the group are also removed.
-
-**Auth required:** Yes
-
-**Path Parameters:**
-
-| Parameter | Type | Description |
-|---|---|---|
-| `group_id` | integer | The group ID |
-
-**Response (200):**
-
-```json
-{
-  "detail": "Group deleted"
-}
-```
-
-**Error Responses:**
-
-| Status | Detail |
-|---|---|
-| 404 | `"Group not found or not owner"` |
-
----
-
-### Admin (`/api/admin`)
-
-All admin endpoints require the authenticated user to have admin privileges (`is_admin: true`). Non-admin users will receive a 403 Forbidden response.
-
----
-
-#### GET /api/admin/users
-
-List all users in the system with their upload counts.
-
-**Auth required:** Yes (Admin only)
-
-**Response (200):**
-
-```json
-[
-  {
-    "id": 1,
-    "username": "johndoe",
-    "email": "john@example.com",
-    "is_admin": false,
-    "is_active": true,
-    "created_at": "2026-01-10T08:00:00",
-    "upload_count": 12
-  }
-]
-```
-
----
-
-#### PATCH /api/admin/users/{user_id}/toggle
-
-Toggle a user's active status (enable/disable). Admins cannot disable themselves.
-
-**Auth required:** Yes (Admin only)
-
-**Path Parameters:**
-
-| Parameter | Type | Description |
-|---|---|---|
-| `user_id` | integer | The user ID |
-
-**Response (200):**
-
-```json
-{
-  "id": 2,
-  "is_active": false
-}
-```
-
-**Error Responses:**
-
-| Status | Detail |
-|---|---|
-| 404 | `"User not found"` |
-| 400 | `"Cannot disable yourself"` |
-
----
-
-#### DELETE /api/admin/users/{user_id}
-
-Delete a user and all their uploaded files from disk. Admins cannot delete themselves.
-
-**Auth required:** Yes (Admin only)
-
-**Path Parameters:**
-
-| Parameter | Type | Description |
-|---|---|---|
-| `user_id` | integer | The user ID |
-
-**Response (200):**
-
-```json
-{
-  "detail": "User deleted"
-}
-```
-
-**Error Responses:**
-
-| Status | Detail |
-|---|---|
-| 404 | `"User not found"` |
-| 400 | `"Cannot delete yourself"` |
-
----
-
-#### GET /api/admin/uploads
-
-List all uploads across all users. Supports filtering.
-
-**Auth required:** Yes (Admin only)
-
-**Query Parameters:**
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `search` | string | null | Filter by filename (case-insensitive partial match) |
-| `status` | string | null | Filter by status |
-| `user_id` | integer | null | Filter by user ID |
-
-**Response (200):**
-
-```json
-[
-  {
-    "id": 1,
-    "filename": "lecture-notes.pdf",
-    "file_type": "pdf",
-    "file_size": 204800,
-    "status": "Completed",
-    "created_at": "2026-01-15T10:30:00",
-    "username": "johndoe"
-  }
-]
-```
-
-Note: Results are limited to 200 entries.
-
----
-
-#### DELETE /api/admin/uploads/{upload_id}
-
-Delete any upload (regardless of owner) and remove the file from disk.
-
-**Auth required:** Yes (Admin only)
-
-**Path Parameters:**
-
-| Parameter | Type | Description |
-|---|---|---|
-| `upload_id` | integer | The upload ID |
-
-**Response (200):**
-
-```json
-{
-  "detail": "Upload deleted"
-}
-```
-
-**Error Responses:**
-
-| Status | Detail |
-|---|---|
-| 404 | `"Upload not found"` |
-
----
-
-#### GET /api/admin/stats
-
-Get system-wide statistics.
-
-**Auth required:** Yes (Admin only)
-
-**Response (200):**
-
-```json
-{
-  "total_users": 50,
-  "total_uploads": 320,
-  "total_storage_mb": 1024.5,
+  "total_users": 10,
+  "total_uploads": 25,
+  "total_storage_mb": 12.4,
   "uploads_by_status": {
-    "Completed": 280,
-    "Pending": 15,
-    "Processing": 5,
-    "Failed": 20
+    "Completed": 20,
+    "Pending": 2,
+    "Processing": 1,
+    "Failed": 2
   },
-  "recent_users": [
-    {
-      "id": 50,
-      "username": "newuser",
-      "email": "new@example.com",
-      "is_admin": false,
-      "is_active": true,
-      "created_at": "2026-02-06T14:00:00",
-      "upload_count": 0
-    }
-  ]
+  "recent_users": []
 }
 ```
 
----
+### `GET /admin/settings`
 
-#### GET /api/admin/settings
+### `PATCH /admin/settings`
 
-Get current system settings.
-
-**Auth required:** Yes (Admin only)
-
-**Response (200):**
-
-```json
-{
-  "max_uploads_per_user": 50,
-  "max_upload_size_mb": 25,
-  "max_audio_minutes": 60,
-  "max_pdf_pages": 200
-}
-```
-
----
-
-#### PATCH /api/admin/settings
-
-Update system settings. All fields are optional; only provided fields are updated.
-
-**Auth required:** Yes (Admin only)
-
-**Request Body (JSON):**
+Request fields are all optional:
 
 ```json
 {
@@ -1752,11 +733,28 @@ Update system settings. All fields are optional; only provided fields are update
 }
 ```
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `max_uploads_per_user` | integer | No | Maximum uploads per user |
-| `max_upload_size_mb` | integer | No | Maximum file size in MB |
-| `max_audio_minutes` | integer | No | Maximum audio duration in minutes |
-| `max_pdf_pages` | integer | No | Maximum PDF page count |
+Response shape:
 
-**Response (200):** Same format as `GET /api/admin/settings`.
+```json
+{
+  "max_uploads_per_user": 100,
+  "max_upload_size_mb": 50,
+  "max_audio_minutes": 120,
+  "max_pdf_pages": 500
+}
+```
+
+---
+
+## Error patterns
+
+Common examples:
+
+- `401 Could not validate credentials`
+- `403 Admin access required`
+- `404 Upload not found`
+- `404 Upload not found or not yours`
+- `404 Upload not found or not shared with you`
+- `400 Comment cannot be empty`
+- `400 Message cannot be empty`
+- `400 Quality must be between 0 and 5`

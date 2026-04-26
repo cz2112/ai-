@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import api from '../services/api';
 
@@ -296,8 +297,14 @@ export default function AdminPage() {
                       <tbody>
                         {uploads.map((upload) => (
                           <tr key={upload.id} className="border-b border-gray-100 dark:border-gray-800 last:border-0">
-                            <td className="px-4 py-3 text-gray-900 dark:text-gray-100 font-medium max-w-[200px] truncate">
-                              {upload.filename}
+                            <td className="px-4 py-3 text-gray-900 dark:text-gray-100 font-medium max-w-[240px]">
+                              <Link
+                                to={`/uploads/${upload.id}`}
+                                className="block truncate hover:text-blue-600 dark:hover:text-blue-400"
+                                title={upload.filename}
+                              >
+                                {upload.filename}
+                              </Link>
                             </td>
                             <td className="px-4 py-3 text-gray-600 dark:text-gray-400 uppercase">
                               {upload.file_type}
@@ -329,12 +336,20 @@ export default function AdminPage() {
                               {new Date(upload.created_at).toLocaleDateString()}
                             </td>
                             <td className="px-4 py-3 text-right">
-                              <button
-                                onClick={() => handleDeleteUpload(upload.id)}
-                                className="px-3 py-1 text-xs rounded-lg font-medium bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50 transition"
-                              >
-                                Delete
-                              </button>
+                              <div className="flex items-center justify-end gap-2">
+                                <Link
+                                  to={`/uploads/${upload.id}`}
+                                  className="px-3 py-1 text-xs rounded-lg font-medium bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-400 dark:hover:bg-blue-900/50 transition"
+                                >
+                                  Open
+                                </Link>
+                                <button
+                                  onClick={() => handleDeleteUpload(upload.id)}
+                                  className="px-3 py-1 text-xs rounded-lg font-medium bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50 transition"
+                                >
+                                  Delete
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         ))}

@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import datetime
 from typing import Optional
 
@@ -23,7 +23,7 @@ class ConversationResponse(BaseModel):
     upload_id: int
     title: str
     created_at: datetime
-    messages: list[ChatMessageResponse] = []
+    messages: list[ChatMessageResponse] = Field(default_factory=list)
 
     class Config:
         from_attributes = True

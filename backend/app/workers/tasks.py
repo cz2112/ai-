@@ -4,7 +4,7 @@ from app.models.upload import Upload
 from app.models.study_material import Summary, KeyConcept, Flashcard
 from app.services.ai_service import (
     transcribe_audio, extract_pdf_text, extract_pptx_text,
-    extract_docx_text, extract_image_text, detect_language,
+    extract_docx_text, extract_image_text, extract_video_text, detect_language,
     generate_summary, generate_key_concepts, generate_flashcards,
 )
 
@@ -31,6 +31,8 @@ def process_upload(self, upload_id: int):
             text = extract_docx_text(upload.file_path)
         elif upload.file_type in ("png", "jpg", "jpeg"):
             text = extract_image_text(upload.file_path)
+        elif upload.file_type in ("mp4", "mov"):
+            text = extract_video_text(upload.file_path)
         else:
             raise ValueError(f"Unsupported file type: {upload.file_type}")
 

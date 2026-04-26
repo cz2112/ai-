@@ -14,3 +14,7 @@ class Course(Base):
 
     user = relationship("User", back_populates="courses")
     uploads = relationship("Upload", back_populates="course")
+
+    @property
+    def upload_count(self):
+        return len(self.uploads or [])

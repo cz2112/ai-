@@ -5,6 +5,7 @@ celery_app = Celery(
     "smart_study",
     broker=settings.REDIS_URL,
     backend=settings.REDIS_URL,
+    include=["app.workers.tasks"],
 )
 
 celery_app.conf.update(
@@ -14,3 +15,6 @@ celery_app.conf.update(
     timezone="UTC",
     enable_utc=True,
 )
+
+# Ensure task registration when the Celery app module is imported.
+from app.workers import tasks  # noqa: F401,E402

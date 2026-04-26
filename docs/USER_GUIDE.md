@@ -1,112 +1,301 @@
 # Smart Study Assistant - User Guide
 
-## Getting Started
+## Account Access
 
-### Register an Account
+### Register
 
-Navigate to the login page and create a new account by providing your email and password. Once registered, you can immediately begin using the platform.
+Use the login page to create an account with:
 
-### Login with Credentials
+- `username`
+- `email`
+- `password`
 
-Enter your registered email and password to access the application. All routes are protected and require authentication.
+After registration, the frontend logs you in automatically.
+
+### Login
+
+Use your username and password on the login page. The backend also accepts email in the same login field, but the current UI is labeled as `Username`.
 
 ## Dashboard
 
-The dashboard is your central hub for managing study materials.
+The dashboard is the main workspace for your own uploads.
 
-- **View all uploaded materials**: Browse your complete library of uploaded study content.
-- **Upload new files**: Supports PDF, MP3, WAV, PPTX, DOCX, PNG, and JPG formats.
-- **Batch upload multiple files**: Select and upload several files at once to save time.
-- **Filter by tags**: Organize and locate materials quickly using custom tags.
-- **Delete uploads**: Remove materials you no longer need.
-- **Click on a material to view details**: Open the detailed view for any uploaded item.
+### Upload materials
+
+You can upload one file or multiple files at once.
+
+Supported file types:
+
+- Documents: `pdf`, `pptx`, `ppt`, `docx`
+- Audio: `mp3`, `wav`
+- Images: `png`, `jpg`, `jpeg`
+- Video: `mp4`, `mov`
+
+Each upload can optionally be assigned to one course.
+
+### Courses
+
+The dashboard includes course management:
+
+- create a course
+- delete a course
+- assign a course during upload
+- filter uploads by course
+
+Deleting a course does not delete the files inside it. It only clears the course assignment from those uploads.
+
+### Upload list controls
+
+The uploads list supports:
+
+- search by filename
+- filter by status
+- filter by course
+- sort by newest, oldest, or filename
+- retry failed uploads
+- delete uploads
+
+### Public / private visibility
+
+For completed uploads, the dashboard shows a two-state visibility control:
+
+- `Private`
+- `Public`
+
+This controls global visibility in the shared materials list.
+
+- `Private` means only you, directly shared users, group members of shared groups, and admins can open the file.
+- `Public` means other users can also see it in `Shared With Me`.
+
+## Upload Processing
+
+New uploads move through these statuses:
+
+- `Pending`
+- `Processing`
+- `Completed`
+- `Failed`
+
+Analysis is asynchronous. If uploads stay stuck in `Pending` or `Processing`, the Celery worker is usually not running.
 
 ## Upload Detail Page
 
-Each uploaded material has a dedicated detail page with multiple tabs for interacting with the content.
+Open an upload from the dashboard, shared page, group workspace, or admin uploads view.
 
-### Summary Tab
+When the upload is completed, the detail page includes these tabs:
 
-View and edit the AI-generated summary of your material. The summary is automatically created when you upload a file and can be refined manually.
+- `Summary`
+- `Concepts`
+- `Flashcards`
+- `Q&A`
+- `Graph`
+- `Transcript`
 
-### Concepts Tab
+### Owner vs read-only access
 
-View and edit key concepts extracted from your material. Each concept includes citations referencing the original source text.
+Owners can:
 
-### Flashcards Tab
+- edit summary
+- edit concepts
+- edit flashcards
+- mark flashcards as known
+- run SM-2 review
+- open the share dialog
+- export the analysis
 
-Browse flashcards generated from your material.
+Shared users, group members, and admins can still open the same analysis page, but they see `Read Only` and do not get owner-only edit controls.
 
-- **Mark as known**: Flag cards you have already mastered.
-- **Review mode**: Enter a focused review session with shuffled unknown cards.
-- **SM-2 Spaced Repetition**: Rate your recall quality on each card using the following scale:
-  - **Forgot** (0): No recall at all.
-  - **Hard** (1): Incorrect response, but recognized the answer.
-  - **Struggled** (2): Incorrect response, but the answer seemed easy to recall.
-  - **OK** (3): Correct response with significant difficulty.
-  - **Good** (4): Correct response after some hesitation.
-  - **Easy** (5): Perfect, immediate recall.
+### Summary
 
-The system schedules your next review based on your rating, optimizing long-term retention.
+Shows the generated summary. Owners can edit it.
 
-### Q&A Tab
+### Concepts
 
-Engage in a multi-turn conversation with AI about the uploaded material. Ask specific questions and receive context-aware answers grounded in your content.
+Shows extracted concepts and citations. Owners can edit concept titles and descriptions.
 
-### Graph Tab
+### Flashcards
 
-Explore an interactive knowledge graph that visualizes relationships between concepts extracted from your material.
+Shows generated flashcards. Owners can:
 
-### Transcript Tab
+- edit question and answer
+- mark a card as known
+- enter `Review Unknown`
+- rate recall with the SM-2 buttons
 
-View the full extracted text from your uploaded file. This includes OCR results for images, transcriptions for audio files, and parsed text for documents.
+### Q&A
 
-### Additional Features
+The Q&A tab lets you ask questions against the current upload.
 
-- **Share materials**: Share your uploads with other registered users.
-- **Export to Markdown**: Download the material summary and concepts as a Markdown file.
-- **Comment section**: Participate in discussions about the material with other users.
+Access is based on upload read permission, not only ownership. A user who can open the upload can also use Q&A for that upload.
 
-## Statistics Page
+### Graph
 
-The statistics page provides comprehensive insights into your study habits and progress.
+The graph tab generates a knowledge graph from the upload content.
 
-- **Summary cards**: Quick overview of total uploads, flashcards mastered, and concepts learned.
-- **Study activity heatmap**: A GitHub-style calendar heatmap showing your daily study activity.
-- **Uploads over time chart**: Track how your library has grown over time.
-- **Status distribution pie chart**: See the processing status breakdown of your uploads.
-- **Learning progress line chart**: Monitor your learning trajectory over time.
-- **Forgetting curve (Ebbinghaus) visualization**: Understand your retention patterns based on spaced repetition data.
-- **Flashcard mastery progress bar**: Visual indicator of how many flashcards you have mastered.
-- **AI-generated learning path**: Receive personalized study recommendations based on your progress.
-- **Usage quota information**: View your current usage relative to platform limits.
+### Transcript
 
-## Shared Materials
+Shows the extracted text, OCR result, or transcription used for the analysis.
 
-Access materials that other users have shared with you. Shared content provides the same viewing experience as your own uploads.
+### Comments
+
+The detail page also includes a comment section below the tabs.
+
+Users with access to the upload can:
+
+- read comments
+- post comments
+- delete their own comments
+
+## Sharing
+
+Owners can open the `Share` dialog from a completed upload.
+
+### Public visibility
+
+Inside the share dialog, the same file can be toggled between:
+
+- `Private`
+- `Public`
+
+This is the same upload-level visibility flag that appears on the dashboard.
+
+### Direct share
+
+Share to a specific user by entering:
+
+- username
+- or email
+
+Direct shares can be created with:
+
+- `Read Only`
+- `Can Edit`
+
+### Share to group
+
+Share the upload to one of your study groups.
+
+Important rule:
+
+- `Private + shared to group` means only members of that group can access it.
+- Sharing to a group does not automatically make the file public.
+
+### Existing shares
+
+The share dialog also shows current direct and group shares and lets the owner remove them.
+
+## Shared With Me
+
+The `Shared` page shows everything the current user can access through sharing:
+
+- direct shares
+- public uploads
+- files shared into groups you belong to
+
+Each item includes:
+
+- owner
+- permission
+- share type
+- optional message
+
+Use `Open Analysis` to open the same detail page used by the owner.
 
 ## Study Groups
 
-Collaborate with other users through study groups.
+The `Groups` page is a group workspace, not just a list.
 
-- **Create study groups**: Start a new group and invite members.
-- **Join existing groups**: Browse and join groups created by others.
-- **View group members**: See who is part of your study groups.
-- **Leave or delete groups**: Exit a group or remove it entirely if you are the owner.
+### Group creation and discovery
 
-## Admin Panel (Admin Users Only)
+You can:
 
-The admin panel is accessible only to users with administrator privileges.
+- create a group
+- set join mode to `Open join` or `Approval required`
+- browse groups you have not joined
+- join directly or send a join request
 
-- **View all users**: Browse the complete list of registered users.
-- **Toggle user active status**: Enable or disable user accounts.
-- **Delete users**: Permanently remove user accounts from the system.
-- **View system statistics**: Monitor platform-wide usage and performance metrics.
+### Invites
 
-## Tips
+The page shows pending invites that you can accept or decline.
 
-- **Use SM-2 review regularly** for optimal long-term retention. The spaced repetition algorithm works best with consistent daily reviews.
-- **Create tags** to organize materials by subject, course, or topic for quick filtering on the dashboard.
-- **Use the Q&A chat** to ask specific questions about your materials instead of re-reading entire documents.
-- **Check the knowledge graph** to understand how concepts relate to each other and identify gaps in your understanding.
-- **Review the forgetting curve** on the statistics page to understand when you are most likely to forget material and schedule reviews accordingly.
+### Group workspace
+
+After opening one of your groups, the workspace includes:
+
+- members
+- shared files
+- group chat
+- invite member
+- join request review for the owner
+
+### Sharing files to a group
+
+The group workspace does not upload raw files directly from the chat box.
+
+Instead, it lets you share one of your existing completed uploads into the group. Group members can then use `Open Analysis` on that shared file.
+
+### Group chat
+
+Group chat currently supports text messages. When a file is shared into a group, the workspace also posts a message announcing that share.
+
+## Statistics
+
+The `Statistics` page includes:
+
+- total uploads
+- completed uploads
+- flashcards mastered
+- key concepts
+- study heatmap
+- uploads over time chart
+- status distribution chart
+- learning progress chart
+- forgetting curve chart
+- flashcard mastery progress bar
+- AI learning path generator
+- usage quota summary
+
+The learning path generator works from your completed uploads.
+
+## Admin
+
+The admin UI is available at `/admin`, but the navbar shows the link only for users whose account has `is_admin=true`.
+
+There is no automatic default admin bootstrap in the application. An account must be promoted manually or created as admin in the database.
+
+### Admin tabs
+
+The admin page currently includes:
+
+- `Users`
+- `Uploads`
+- `Statistics`
+- `Settings`
+
+### Admin abilities
+
+Admins can:
+
+- view all users
+- enable or disable users
+- delete users
+- view all uploads
+- open any upload analysis page
+- toggle upload public visibility
+- delete uploads
+- view platform statistics
+- change upload and processing limits
+
+## Troubleshooting
+
+### Upload completes but analysis is missing
+
+Check that the backend worker is running. Upload analysis depends on Celery.
+
+### Shared file opens in read-only mode
+
+That is expected for users who are not the owner.
+
+### A private file is visible in a group
+
+That is also expected when the owner shared the file into that group. Private means not globally public, not group-hidden.

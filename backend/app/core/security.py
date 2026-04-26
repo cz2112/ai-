@@ -1,13 +1,14 @@
 from datetime import datetime, timedelta, timezone
 from jose import jwt, JWTError
 from passlib.context import CryptContext
+from passlib.exc import UnknownHashError
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["pbkdf2_sha256", "bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
 ALGORITHM = "HS256"
@@ -18,7 +19,22 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
+    if not plain or not hashed:
+        return False
+    try:
+        return pwd_context.verify(plain, hashed)
+    except (UnknownHashError, ValueError, TypeError):
+        # Compatibility for legacy records that were stored as plain text.
+        return plain == hashed
+
+
+def password_needs_rehash(hashed: str) -> bool:
+    if not hashed:
+        return False
+    try:
+        return pwd_context.needs_update(hashed)
+    except (UnknownHashError, ValueError, TypeError):
+        return True
 
 
 def create_access_token(data: dict) -> str:

@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import datetime
 from typing import Optional
 
@@ -9,8 +9,10 @@ class UploadResponse(BaseModel):
     file_type: str
     file_size: int
     status: str
+    is_shared: bool = False
     error_message: Optional[str] = None
     course_id: Optional[int] = None
+    course_name: Optional[str] = None
     language: str = "en"
     created_at: datetime
     updated_at: datetime
@@ -64,17 +66,19 @@ class FlashcardUpdate(BaseModel):
 
 class UploadDetailResponse(BaseModel):
     id: int
+    user_id: int
     filename: str
     file_type: str
     file_size: int
     status: str
+    is_shared: bool = False
     error_message: Optional[str] = None
     transcript: Optional[str] = None
     course_id: Optional[int] = None
     language: str = "en"
     summary: Optional[SummaryResponse] = None
-    key_concepts: list[KeyConceptResponse] = []
-    flashcards: list[FlashcardResponse] = []
+    key_concepts: list[KeyConceptResponse] = Field(default_factory=list)
+    flashcards: list[FlashcardResponse] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 

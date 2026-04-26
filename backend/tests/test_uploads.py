@@ -1,7 +1,7 @@
 """Tests for upload endpoints: /api/uploads/*"""
 
 import io
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 
 class TestListUploads:
@@ -62,6 +62,58 @@ class TestQuota:
         assert "max_file_size_mb" in data
         assert data["uploads_used"] == 0
         assert data["uploads_limit"] > 0
+
+
+class TestSharedUploadAccess:
+    def test_direct_share_user_can_view_detail_and_export(self, client, auth_header, second_auth_header, test_upload):
+        user_resp = client.get("/api/auth/me", headers=second_auth_header)
+        user2_id = user_resp.json()["id"]
+
+        share_resp = client.post(
+            "/api/share/",
+            headers=auth_header,
+            json={"upload_id": test_upload, "shared_with": user2_id},
+        )
+        assert share_resp.status_code == 200
+
+        detail_resp = client.get(f"/api/uploads/{test_upload}", headers=second_auth_header)
+        assert detail_resp.status_code == 200
+        detail_data = detail_resp.json()
+        assert detail_data["id"] == test_upload
+        assert detail_data["user_id"] != user2_id
+
+        export_resp = client.get(f"/api/uploads/{test_upload}/export", headers=second_auth_header)
+        assert export_resp.status_code == 200
+        assert "# test_notes.pdf" in export_resp.text
+        assert "machine learning" in export_resp.text
+
+    @patch("app.api.uploads.generate_knowledge_graph", return_value={"nodes": [{"id": "n1", "label": "ML", "group": "topic"}], "edges": []})
+    def test_group_member_can_view_knowledge_graph(self, mock_graph, client, auth_header, second_auth_header, test_upload):
+        group_resp = client.post(
+            "/api/share/groups",
+            headers=auth_header,
+            json={"name": "Graph Group", "description": "Shared graphs"},
+        )
+        group_id = group_resp.json()["id"]
+
+        join_resp = client.post(f"/api/share/groups/{group_id}/join", headers=second_auth_header)
+        assert join_resp.status_code == 200
+
+        share_resp = client.post(
+            f"/api/share/groups/{group_id}/files",
+            headers=auth_header,
+            json={"upload_id": test_upload},
+        )
+        assert share_resp.status_code == 200
+
+        graph_resp = client.get(f"/api/uploads/{test_upload}/knowledge-graph", headers=second_auth_header)
+        assert graph_resp.status_code == 200
+        assert graph_resp.json()["nodes"][0]["label"] == "ML"
+        mock_graph.assert_called_once()
+
+    def test_non_shared_user_cannot_view_upload_detail(self, client, auth_header, second_auth_header, test_upload):
+        detail_resp = client.get(f"/api/uploads/{test_upload}", headers=second_auth_header)
+        assert detail_resp.status_code == 404
 
 
 class TestTags:

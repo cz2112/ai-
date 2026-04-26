@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import DashboardPage from '../pages/DashboardPage';
 import api from '../services/api';
@@ -10,6 +10,7 @@ vi.mock('../services/api', () => ({
     get: vi.fn(),
     post: vi.fn(),
     delete: vi.fn(),
+    patch: vi.fn(),
   },
 }));
 
@@ -71,6 +72,7 @@ describe('DashboardPage', () => {
         file_type: 'pdf',
         file_size: 204800,
         status: 'Completed',
+        is_shared: false,
         created_at: '2026-01-15T10:30:00Z',
         course_name: null,
       },
@@ -80,6 +82,7 @@ describe('DashboardPage', () => {
         file_type: 'docx',
         file_size: 51200,
         status: 'Pending',
+        is_shared: false,
         created_at: '2026-01-16T14:00:00Z',
         course_name: 'Biology',
       },
@@ -104,6 +107,8 @@ describe('DashboardPage', () => {
 
     expect(screen.getByText('Completed')).toBeInTheDocument();
     expect(screen.getByText('Pending')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Private' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Public' })).toBeInTheDocument();
   });
 
   it('shows empty state when no uploads', async () => {
@@ -123,6 +128,41 @@ describe('DashboardPage', () => {
       expect(
         screen.getByText(/no uploads yet\. upload a file to get started\./i)
       ).toBeInTheDocument();
+    });
+  });
+
+  it('updates upload visibility from the list', async () => {
+    const mockUploads = [
+      {
+        id: 1,
+        filename: 'lecture-notes.pdf',
+        file_type: 'pdf',
+        file_size: 204800,
+        status: 'Completed',
+        is_shared: false,
+        created_at: '2026-01-15T10:30:00Z',
+        course_name: null,
+      },
+    ];
+
+    api.get.mockImplementation((url) => {
+      if (url === '/uploads/') {
+        return Promise.resolve({ data: mockUploads });
+      }
+      if (url === '/uploads/courses') {
+        return Promise.resolve({ data: [] });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    api.patch.mockResolvedValue({ data: { upload_id: 1, is_shared: true } });
+
+    renderDashboardPage();
+
+    const publicButton = await screen.findByRole('button', { name: 'Public' });
+    fireEvent.click(publicButton);
+
+    await waitFor(() => {
+      expect(api.patch).toHaveBeenCalledWith('/share/uploads/1/visibility', { is_shared: true });
     });
   });
 });

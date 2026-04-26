@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
+from sqlalchemy import false, or_
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.user import User
@@ -12,9 +12,33 @@ from app.schemas.share import (
     JoinRequestResponse, GroupInviteCreate, GroupInviteResponse,
     GroupMessageCreate, GroupMessageResponse,
     GroupFileShareCreate, GroupFileResponse,
+    ShareVisibilityUpdate, ShareVisibilityResponse,
 )
+from app.services.upload_access import get_user_group_ids, user_can_access_upload
 
 router = APIRouter(prefix="/api/share", tags=["share"])
+
+
+def _serialize_share(db: Session, share: SharedUpload) -> ShareResponse:
+    upload = db.query(Upload).filter(Upload.id == share.upload_id).first()
+    owner = db.query(User).filter(User.id == share.shared_by).first()
+    group_name = ""
+    if share.group_id:
+        group = db.query(StudyGroup).filter(StudyGroup.id == share.group_id).first()
+        group_name = group.name if group else ""
+    return ShareResponse(
+        id=share.id,
+        upload_id=share.upload_id,
+        shared_by=share.shared_by,
+        shared_with=share.shared_with,
+        group_id=share.group_id,
+        message=share.message,
+        permission=share.permission or "read",
+        created_at=share.created_at,
+        filename=upload.filename if upload else "",
+        owner_name=owner.username if owner else "",
+        group_name=group_name,
+    )
 
 
 # ── Sharing ──────────────────────────────────────────────
@@ -24,43 +48,91 @@ def share_upload(data: ShareCreate, db: Session = Depends(get_db), current_user:
     upload = db.query(Upload).filter(Upload.id == data.upload_id, Upload.user_id == current_user.id).first()
     if not upload:
         raise HTTPException(status_code=404, detail="Upload not found or not yours")
+
+    shared_with = data.shared_with
+    if shared_with is None and data.shared_with_username:
+        target_user = db.query(User).filter(
+            or_(User.username == data.shared_with_username, User.email == data.shared_with_username)
+        ).first()
+        if not target_user:
+            raise HTTPException(status_code=404, detail="Target user not found")
+        shared_with = target_user.id
+    if shared_with == current_user.id:
+        raise HTTPException(status_code=400, detail="Cannot share with yourself")
+    if data.group_id is not None:
+        membership = db.query(GroupMember).filter(
+            GroupMember.group_id == data.group_id,
+            GroupMember.user_id == current_user.id,
+        ).first()
+        if not membership:
+            raise HTTPException(status_code=403, detail="You must be a member of the group to share files there")
+
+    existing = db.query(SharedUpload).filter(
+        SharedUpload.upload_id == data.upload_id,
+        SharedUpload.shared_with == shared_with,
+        SharedUpload.group_id == data.group_id,
+    ).first()
+    if existing:
+        existing.message = data.message
+        existing.permission = (data.permission or existing.permission or "read").strip()
+        db.commit()
+        db.refresh(existing)
+        return _serialize_share(db, existing)
+
     share = SharedUpload(
         upload_id=data.upload_id,
         shared_by=current_user.id,
-        shared_with=data.shared_with,
+        shared_with=shared_with,
         group_id=data.group_id,
         message=data.message,
+        permission=(data.permission or "read").strip() or "read",
     )
     db.add(share)
     db.commit()
     db.refresh(share)
-    return ShareResponse(
-        id=share.id, upload_id=share.upload_id, shared_by=share.shared_by,
-        shared_with=share.shared_with, group_id=share.group_id,
-        message=share.message, created_at=share.created_at,
-        filename=upload.filename, owner_name=current_user.username,
-    )
+    return _serialize_share(db, share)
+
+
+@router.get("/mine", response_model=list[ShareResponse])
+def list_my_shares(upload_id: int | None = None, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    query = db.query(SharedUpload).filter(SharedUpload.shared_by == current_user.id)
+    if upload_id is not None:
+        query = query.filter(SharedUpload.upload_id == upload_id)
+    shares = query.order_by(SharedUpload.created_at.desc(), SharedUpload.id.desc()).all()
+    return [_serialize_share(db, share) for share in shares]
+
+
+@router.patch("/uploads/{upload_id}/visibility", response_model=ShareVisibilityResponse)
+def update_upload_visibility(
+    upload_id: int,
+    data: ShareVisibilityUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    upload = db.query(Upload).filter(Upload.id == upload_id, Upload.user_id == current_user.id).first()
+    if not upload:
+        raise HTTPException(status_code=404, detail="Upload not found or not yours")
+    upload.is_shared = data.is_shared
+    db.commit()
+    db.refresh(upload)
+    return ShareVisibilityResponse(upload_id=upload.id, is_shared=bool(upload.is_shared))
 
 
 @router.get("/shared-with-me", response_model=list[ShareResponse])
 def get_shared_with_me(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    # 1) Explicitly shared with me or shared publicly (via SharedUpload)
+    group_ids = get_user_group_ids(db, current_user.id)
+
+    # 1) Explicit direct shares, explicit public shares, and shares posted into my groups.
     shares = db.query(SharedUpload).filter(
-        (SharedUpload.shared_with == current_user.id) | (SharedUpload.shared_with == None)
+        (SharedUpload.shared_with == current_user.id)
+        | ((SharedUpload.shared_with == None) & (SharedUpload.group_id == None))
+        | (SharedUpload.group_id.in_(group_ids) if group_ids else false())
     ).order_by(SharedUpload.created_at.desc()).all()
     result = []
     seen_upload_ids = set()
     for s in shares:
-        upload = db.query(Upload).filter(Upload.id == s.upload_id).first()
-        owner = db.query(User).filter(User.id == s.shared_by).first()
         seen_upload_ids.add(s.upload_id)
-        result.append(ShareResponse(
-            id=s.id, upload_id=s.upload_id, shared_by=s.shared_by,
-            shared_with=s.shared_with, group_id=s.group_id,
-            message=s.message, created_at=s.created_at,
-            filename=upload.filename if upload else "",
-            owner_name=owner.username if owner else "",
-        ))
+        result.append(_serialize_share(db, s))
     # 2) Admin-toggled public files (is_shared=True), exclude own files and duplicates
     public_uploads = db.query(Upload).filter(
         Upload.is_shared == True, Upload.user_id != current_user.id
@@ -72,9 +144,9 @@ def get_shared_with_me(db: Session = Depends(get_db), current_user: User = Depen
         result.append(ShareResponse(
             id=0, upload_id=u.id, shared_by=u.user_id,
             shared_with=None, group_id=None,
-            message="Publicly shared", created_at=u.created_at,
+            message="Publicly shared", permission="read", created_at=u.created_at,
             filename=u.filename,
-            owner_name=owner.username if owner else "",
+            owner_name=owner.username if owner else "", group_name="",
         ))
     return result
 
@@ -93,7 +165,11 @@ def delete_share(share_id: int, db: Session = Depends(get_db), current_user: Use
 
 @router.post("/{upload_id}/comments", response_model=CommentResponse)
 def add_comment(upload_id: int, data: CommentCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    comment = Comment(upload_id=upload_id, user_id=current_user.id, content=data.content)
+    if not user_can_access_upload(db, current_user.id, upload_id):
+        raise HTTPException(status_code=404, detail="Upload not found or not shared with you")
+    if not data.content.strip():
+        raise HTTPException(status_code=400, detail="Comment cannot be empty")
+    comment = Comment(upload_id=upload_id, user_id=current_user.id, content=data.content.strip())
     db.add(comment)
     db.commit()
     db.refresh(comment)
@@ -106,6 +182,8 @@ def add_comment(upload_id: int, data: CommentCreate, db: Session = Depends(get_d
 
 @router.get("/{upload_id}/comments", response_model=list[CommentResponse])
 def list_comments(upload_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if not user_can_access_upload(db, current_user.id, upload_id):
+        raise HTTPException(status_code=404, detail="Upload not found or not shared with you")
     comments = db.query(Comment).filter(Comment.upload_id == upload_id).order_by(Comment.created_at.asc()).all()
     result = []
     for c in comments:
@@ -443,14 +521,14 @@ def share_file_to_group(group_id: int, data: GroupFileShareCreate, db: Session =
     ).first()
     if existing:
         raise HTTPException(status_code=400, detail="File already shared to this group")
-    share = SharedUpload(upload_id=data.upload_id, shared_by=current_user.id, group_id=group_id)
+    share = SharedUpload(upload_id=data.upload_id, shared_by=current_user.id, group_id=group_id, permission="read")
     db.add(share)
     db.commit()
     db.refresh(share)
     return GroupFileResponse(
         id=share.id, upload_id=upload.id, filename=upload.filename,
         file_type=upload.file_type, shared_by=current_user.id,
-        owner_name=current_user.username, created_at=share.created_at,
+        owner_name=current_user.username, permission=share.permission or "read", created_at=share.created_at,
     )
 
 
@@ -468,7 +546,7 @@ def list_group_files(group_id: int, db: Session = Depends(get_db), current_user:
             result.append(GroupFileResponse(
                 id=s.id, upload_id=upload.id, filename=upload.filename,
                 file_type=upload.file_type, shared_by=s.shared_by,
-                owner_name=owner.username if owner else "", created_at=s.created_at,
+                owner_name=owner.username if owner else "", permission=s.permission or "read", created_at=s.created_at,
             ))
     return result
 

@@ -6,8 +6,10 @@ from typing import Optional
 class ShareCreate(BaseModel):
     upload_id: int
     shared_with: Optional[int] = None  # user_id, null = public
+    shared_with_username: Optional[str] = None
     group_id: Optional[int] = None
     message: Optional[str] = None
+    permission: Optional[str] = None
 
 
 class ShareResponse(BaseModel):
@@ -17,9 +19,11 @@ class ShareResponse(BaseModel):
     shared_with: Optional[int] = None
     group_id: Optional[int] = None
     message: Optional[str] = None
+    permission: str = "read"
     created_at: datetime
     filename: str = ""
     owner_name: str = ""
+    group_name: str = ""
 
     class Config:
         from_attributes = True
@@ -134,7 +138,17 @@ class GroupFileResponse(BaseModel):
     file_type: str = ""
     shared_by: int
     owner_name: str = ""
+    permission: str = "read"
     created_at: datetime
 
     class Config:
         from_attributes = True
+
+
+class ShareVisibilityUpdate(BaseModel):
+    is_shared: bool
+
+
+class ShareVisibilityResponse(BaseModel):
+    upload_id: int
+    is_shared: bool

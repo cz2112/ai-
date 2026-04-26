@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import api from '../services/api';
+import getApiErrorMessage from '../services/errorMessage';
 
 const STATUS_COLORS = {
   Pending: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200',
@@ -11,6 +12,7 @@ const STATUS_COLORS = {
 };
 
 export default function DashboardPage() {
+  const coursesAvailable = true;
   const [uploads, setUploads] = useState([]);
   const [courses, setCourses] = useState([]);
   const [file, setFile] = useState(null);
@@ -23,6 +25,7 @@ export default function DashboardPage() {
   const [sort, setSort] = useState('-created_at');
   const [newCourse, setNewCourse] = useState('');
   const [selectedCourse, setSelectedCourse] = useState('');
+  const [visibilityUpdating, setVisibilityUpdating] = useState({});
 
   const fetchUploads = useCallback(async () => {
     try {
@@ -50,8 +53,10 @@ export default function DashboardPage() {
   }, [fetchUploads]);
 
   useEffect(() => {
-    fetchCourses();
-  }, [fetchCourses]);
+    if (coursesAvailable) {
+      fetchCourses();
+    }
+  }, [fetchCourses, coursesAvailable]);
 
   const handleUpload = async (e) => {
     e.preventDefault();
@@ -63,12 +68,12 @@ export default function DashboardPage() {
         // Batch upload
         const formData = new FormData();
         files.forEach((f) => formData.append('files', f));
-        if (selectedCourse) formData.append('course_id', selectedCourse);
+        if (coursesAvailable && selectedCourse) formData.append('course_id', selectedCourse);
         await api.post('/uploads/batch', formData);
       } else {
         const formData = new FormData();
         formData.append('file', file || files[0]);
-        if (selectedCourse) formData.append('course_id', selectedCourse);
+        if (coursesAvailable && selectedCourse) formData.append('course_id', selectedCourse);
         await api.post('/uploads/', formData);
       }
       setFile(null);
@@ -76,7 +81,7 @@ export default function DashboardPage() {
       e.target.reset();
       fetchUploads();
     } catch (err) {
-      setError(err.response?.data?.detail || 'Upload failed');
+      setError(getApiErrorMessage(err, 'Upload failed'));
     } finally {
       setUploading(false);
     }
@@ -90,7 +95,7 @@ export default function DashboardPage() {
       setNewCourse('');
       fetchCourses();
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to add course');
+      setError(getApiErrorMessage(err, 'Failed to add course'));
     }
   };
 
@@ -102,7 +107,7 @@ export default function DashboardPage() {
       if (selectedCourse === String(id)) setSelectedCourse('');
       fetchCourses();
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to delete course');
+      setError(getApiErrorMessage(err, 'Failed to delete course'));
     }
   };
 
@@ -117,11 +122,35 @@ export default function DashboardPage() {
     fetchUploads();
   };
 
+  const handleVisibilityChange = async (id, isShared) => {
+    setError('');
+    setVisibilityUpdating((prev) => ({ ...prev, [id]: true }));
+    try {
+      await api.patch(`/share/uploads/${id}/visibility`, { is_shared: isShared });
+      setUploads((prev) =>
+        prev.map((upload) =>
+          upload.id === id ? { ...upload, is_shared: isShared } : upload
+        )
+      );
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Failed to update file visibility'));
+    } finally {
+      setVisibilityUpdating((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    }
+  };
+
   const formatSize = (bytes) => {
     if (bytes < 1024) return bytes + ' B';
     if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
     return (bytes / 1048576).toFixed(1) + ' MB';
   };
+
+  const getCourseName = (upload) =>
+    upload.course_name || courses.find((course) => course.id === upload.course_id)?.name || '';
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
@@ -139,11 +168,11 @@ export default function DashboardPage() {
           <form onSubmit={handleUpload} className="flex gap-4 items-end flex-wrap">
             <div className="flex-1 min-w-[200px]">
               <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">
-                Select files (PDF, PPTX, DOCX, MP3, WAV, PNG, JPG)
+                Select files (PDF, PPTX, DOCX, MP3, WAV, MP4, MOV, PNG, JPG)
               </label>
               <input
                 type="file"
-                accept=".pdf,.mp3,.wav,.pptx,.ppt,.docx,.png,.jpg,.jpeg"
+                accept=".pdf,.mp3,.wav,.mp4,.mov,.pptx,.ppt,.docx,.png,.jpg,.jpeg"
                 multiple
                 onChange={(e) => {
                   const selected = Array.from(e.target.files);
@@ -153,19 +182,21 @@ export default function DashboardPage() {
                 className="w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-blue-50 file:text-blue-600 file:font-medium hover:file:bg-blue-100 dark:file:bg-blue-900 dark:file:text-blue-300 dark:text-gray-300"
               />
             </div>
-            <div className="min-w-[160px]">
-              <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">Course (optional)</label>
-              <select
-                value={selectedCourse}
-                onChange={(e) => setSelectedCourse(e.target.value)}
-                className="w-full text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
-              >
-                <option value="">No course</option>
-                {courses.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
-            </div>
+            {coursesAvailable && (
+              <div className="min-w-[160px]">
+                <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">Course (optional)</label>
+                <select
+                  value={selectedCourse}
+                  onChange={(e) => setSelectedCourse(e.target.value)}
+                  className="w-full text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                >
+                  <option value="">No course</option>
+                  {courses.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <button
               type="submit"
               disabled={(!file && files.length === 0) || uploading}
@@ -176,39 +207,40 @@ export default function DashboardPage() {
           </form>
         </div>
 
-        {/* Course Management */}
-        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-4 mb-6">
-          <div className="flex items-center gap-3 flex-wrap">
-            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Courses:</span>
-            {courses.map((c) => (
-              <span key={c.id} className="inline-flex items-center gap-1 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 text-xs px-3 py-1 rounded-full">
-                {c.name}
+        {coursesAvailable && (
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-4 mb-6">
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Courses:</span>
+              {courses.map((c) => (
+                <span key={c.id} className="inline-flex items-center gap-1 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 text-xs px-3 py-1 rounded-full">
+                  {c.name}
+                  <button
+                    onClick={() => handleDeleteCourse(c.id)}
+                    className="ml-1 text-gray-400 hover:text-red-500 dark:hover:text-red-400"
+                    title="Delete course"
+                  >
+                    x
+                  </button>
+                </span>
+              ))}
+              <form onSubmit={handleAddCourse} className="inline-flex items-center gap-2 ml-auto">
+                <input
+                  type="text"
+                  value={newCourse}
+                  onChange={(e) => setNewCourse(e.target.value)}
+                  placeholder="New course..."
+                  className="text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400"
+                />
                 <button
-                  onClick={() => handleDeleteCourse(c.id)}
-                  className="ml-1 text-gray-400 hover:text-red-500 dark:hover:text-red-400"
-                  title="Delete course"
+                  type="submit"
+                  className="text-sm bg-green-600 text-white px-3 py-1 rounded-lg hover:bg-green-700 transition"
                 >
-                  x
+                  Add
                 </button>
-              </span>
-            ))}
-            <form onSubmit={handleAddCourse} className="inline-flex items-center gap-2 ml-auto">
-              <input
-                type="text"
-                value={newCourse}
-                onChange={(e) => setNewCourse(e.target.value)}
-                placeholder="New course..."
-                className="text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400"
-              />
-              <button
-                type="submit"
-                className="text-sm bg-green-600 text-white px-3 py-1 rounded-lg hover:bg-green-700 transition"
-              >
-                Add
-              </button>
-            </form>
+              </form>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Search / Filter / Sort Controls */}
         <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-4 mb-6">
@@ -226,21 +258,23 @@ export default function DashboardPage() {
               className="text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
             >
               <option value="">All statuses</option>
-              <option value="Pending">Pending</option>
-              <option value="Processing">Processing</option>
-              <option value="Completed">Completed</option>
-              <option value="Failed">Failed</option>
+              <option value="Pending">Pending uploads</option>
+              <option value="Processing">Processing uploads</option>
+              <option value="Completed">Completed uploads</option>
+              <option value="Failed">Failed uploads</option>
             </select>
-            <select
-              value={filterCourse}
-              onChange={(e) => setFilterCourse(e.target.value)}
-              className="text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
-            >
-              <option value="">All courses</option>
-              {courses.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
+            {coursesAvailable && (
+              <select
+                value={filterCourse}
+                onChange={(e) => setFilterCourse(e.target.value)}
+                className="text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+              >
+                <option value="">All courses</option>
+                {courses.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            )}
             <select
               value={sort}
               onChange={(e) => setSort(e.target.value)}
@@ -270,10 +304,40 @@ export default function DashboardPage() {
                     <span>{u.file_type.toUpperCase()}</span>
                     <span>{formatSize(u.file_size)}</span>
                     <span>{new Date(u.created_at).toLocaleString()}</span>
-                    {u.course_name && <span className="text-blue-500 dark:text-blue-400">{u.course_name}</span>}
+                    {getCourseName(u) && <span className="text-blue-500 dark:text-blue-400">{getCourseName(u)}</span>}
                   </div>
                 </div>
                 <div className="flex items-center gap-3 ml-4">
+                  {u.status === 'Completed' && (
+                    <div className="inline-flex items-center rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleVisibilityChange(u.id, false)}
+                        disabled={Boolean(visibilityUpdating[u.id]) || !u.is_shared}
+                        className={`px-3 py-1.5 text-xs font-medium transition ${
+                          !u.is_shared
+                            ? 'bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900'
+                            : 'bg-white text-gray-600 hover:bg-gray-50 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800'
+                        } ${visibilityUpdating[u.id] ? 'opacity-60 cursor-wait' : ''}`}
+                        title="Only you and explicitly shared users/groups can access this file"
+                      >
+                        Private
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleVisibilityChange(u.id, true)}
+                        disabled={Boolean(visibilityUpdating[u.id]) || Boolean(u.is_shared)}
+                        className={`px-3 py-1.5 text-xs font-medium border-l border-gray-300 dark:border-gray-600 transition ${
+                          u.is_shared
+                            ? 'bg-green-600 text-white'
+                            : 'bg-white text-gray-600 hover:bg-gray-50 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800'
+                        } ${visibilityUpdating[u.id] ? 'opacity-60 cursor-wait' : ''}`}
+                        title="Anyone with access to the shared materials list can open this file"
+                      >
+                        Public
+                      </button>
+                    </div>
+                  )}
                   <span className={`px-3 py-1 rounded-full text-xs font-medium ${STATUS_COLORS[u.status]}`}>
                     {u.status}
                   </span>

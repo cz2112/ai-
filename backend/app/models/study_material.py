@@ -39,3 +39,4 @@ class Flashcard(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     upload = relationship("Upload", back_populates="flashcards")
+    reviews = relationship("FlashcardReview", back_populates="flashcard", cascade="all, delete-orphan")

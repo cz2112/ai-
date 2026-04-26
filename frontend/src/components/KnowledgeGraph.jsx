@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import api from '../services/api';
+import getApiErrorMessage from '../services/errorMessage';
 
 const COLORS = [
   '#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6',
@@ -20,7 +21,7 @@ export default function KnowledgeGraph({ uploadId }) {
       const res = await api.get(`/uploads/${uploadId}/knowledge-graph`);
       setGraph(res.data);
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to generate knowledge graph');
+      setError(getApiErrorMessage(err, 'Failed to generate knowledge graph'));
     } finally {
       setLoading(false);
     }

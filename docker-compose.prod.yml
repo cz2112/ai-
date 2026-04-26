@@ -1,8 +1,7 @@
-version: '3.8'
-
 services:
   db:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: ${DB_USER:-studyapp}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-studyapp123}
@@ -12,13 +11,14 @@ services:
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U studyapp"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-studyapp} -d ${DB_NAME:-smart_study}"]
       interval: 5s
       timeout: 5s
       retries: 5
 
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
     ports:
       - "6379:6379"
     healthcheck:
@@ -29,47 +29,88 @@ services:
 
   backend:
     build: ./backend
+    restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql://${DB_USER:-studyapp}:${DB_PASSWORD:-studyapp123}@db:5432/${DB_NAME:-smart_study}
+      DATABASE_URL: postgresql+psycopg2://${DB_USER:-studyapp}:${DB_PASSWORD:-studyapp123}@db:5432/${DB_NAME:-smart_study}
       REDIS_URL: redis://redis:6379/0
       SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
-      GROQ_API_KEY: ${GROQ_API_KEY}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+      AI_PROVIDER: ${AI_PROVIDER:-deepseek}
+      AI_BASE_URL: ${AI_BASE_URL:-https://api.deepseek.com}
+      LLM_MODEL: ${LLM_MODEL:-deepseek-v4-flash}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      ZHIPU_API_KEY: ${ZHIPU_API_KEY}
+      GLM_BASE_URL: ${GLM_BASE_URL:-https://open.bigmodel.cn/api/paas/v4}
+      GLM_ASR_MODEL: ${GLM_ASR_MODEL:-glm-asr-2512}
+      GLM_VISION_MODEL: ${GLM_VISION_MODEL:-glm-4.6v}
+      GLM_OCR_MODEL: ${GLM_OCR_MODEL:-glm-ocr}
+      GLM_ASR_CHUNK_SECONDS: ${GLM_ASR_CHUNK_SECONDS:-25}
+      GLM_VIDEO_FRAME_COUNT: ${GLM_VIDEO_FRAME_COUNT:-6}
+      MAX_UPLOADS_PER_USER: ${MAX_UPLOADS_PER_USER:-100}
+      MAX_UPLOAD_SIZE_MB: ${MAX_UPLOAD_SIZE_MB:-50}
+      MAX_AUDIO_MINUTES: ${MAX_AUDIO_MINUTES:-120}
+      MAX_PDF_PAGES: ${MAX_PDF_PAGES:-500}
+      UPLOAD_DIR: /app/uploads
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
+    volumes:
+      - uploads_data:/app/uploads
     ports:
       - "8000:8000"
 
   celery_worker:
     build: ./backend
+    restart: unless-stopped
     command: celery -A app.workers.celery_app worker --loglevel=info
     environment:
-      DATABASE_URL: postgresql://${DB_USER:-studyapp}:${DB_PASSWORD:-studyapp123}@db:5432/${DB_NAME:-smart_study}
+      DATABASE_URL: postgresql+psycopg2://${DB_USER:-studyapp}:${DB_PASSWORD:-studyapp123}@db:5432/${DB_NAME:-smart_study}
       REDIS_URL: redis://redis:6379/0
       SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
-      GROQ_API_KEY: ${GROQ_API_KEY}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+      AI_PROVIDER: ${AI_PROVIDER:-deepseek}
+      AI_BASE_URL: ${AI_BASE_URL:-https://api.deepseek.com}
+      LLM_MODEL: ${LLM_MODEL:-deepseek-v4-flash}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      ZHIPU_API_KEY: ${ZHIPU_API_KEY}
+      GLM_BASE_URL: ${GLM_BASE_URL:-https://open.bigmodel.cn/api/paas/v4}
+      GLM_ASR_MODEL: ${GLM_ASR_MODEL:-glm-asr-2512}
+      GLM_VISION_MODEL: ${GLM_VISION_MODEL:-glm-4.6v}
+      GLM_OCR_MODEL: ${GLM_OCR_MODEL:-glm-ocr}
+      GLM_ASR_CHUNK_SECONDS: ${GLM_ASR_CHUNK_SECONDS:-25}
+      GLM_VIDEO_FRAME_COUNT: ${GLM_VIDEO_FRAME_COUNT:-6}
+      MAX_UPLOADS_PER_USER: ${MAX_UPLOADS_PER_USER:-100}
+      MAX_UPLOAD_SIZE_MB: ${MAX_UPLOAD_SIZE_MB:-50}
+      MAX_AUDIO_MINUTES: ${MAX_AUDIO_MINUTES:-120}
+      MAX_PDF_PAGES: ${MAX_PDF_PAGES:-500}
+      UPLOAD_DIR: /app/uploads
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
+    volumes:
+      - uploads_data:/app/uploads
 
   frontend:
     build: ./frontend
+    restart: unless-stopped
     depends_on:
       - backend
 
   nginx:
     image: nginx:alpine
+    restart: unless-stopped
     ports:
       - "80:80"
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
       - backend
       - frontend
 
 volumes:
   postgres_data:
+  uploads_data:

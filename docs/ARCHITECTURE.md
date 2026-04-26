@@ -1,567 +1,382 @@
 # Architecture Design Document
 
-## 1. System Overview
+## 1. Overview
 
-Smart Study Assistant is an AI-powered learning platform that transforms raw study
-materials into structured, interactive learning resources. The system supports the
-following core workflows:
+Smart Study Assistant is a full-stack study platform that turns uploaded materials into structured study assets:
 
-- **Material Upload and Processing**: Users upload study materials in various formats
-  (PDF, audio MP3/WAV, PPTX, DOCX, images PNG/JPG). A background worker extracts
-  text content and sends it to an AI model, which generates summaries, flashcards,
-  and key concepts with citations automatically.
-- **Multi-turn Q&A Chat**: Users can ask questions about any uploaded document in a
-  conversational interface. The AI answers based on the document context, maintaining
-  full conversation history across multiple turns.
-- **Knowledge Graph**: AI extracts entities and relationships from study materials and
-  presents them as an interactive node-and-edge graph for visual learning.
-- **Learning Paths**: The system analyzes a student's uploaded materials and known
-  concepts to suggest a personalized, ordered learning path.
-- **Spaced Repetition (SM-2)**: Flashcard reviews follow the SuperMemo SM-2 algorithm,
-  scheduling cards at increasing intervals based on recall quality (0-5 scale).
-- **Collaboration**: Users can share uploads publicly or with specific users, leave
-  comments on shared materials, and form study groups with member management.
-- **Admin Dashboard**: Administrators can manage users (activate, deactivate, promote)
-  and view platform-wide statistics.
+- transcript / extracted text
+- summary
+- key concepts
+- flashcards
+- contextual Q&A
+- knowledge graph
+- learning path recommendations
 
----
+It also supports:
 
-## 2. Technology Stack
+- comments
+- direct sharing
+- public/private visibility
+- study groups
+- admin operations
 
-### Backend
+## 2. Runtime architecture
 
-| Component       | Technology                          |
-|-----------------|-------------------------------------|
-| Language        | Python 3.12                         |
-| Web Framework   | FastAPI                             |
-| ORM             | SQLAlchemy (declarative base)       |
-| Database        | PostgreSQL 16 (Alpine)              |
-| Cache / Broker  | Redis 7 (Alpine)                    |
-| Task Queue      | Celery                              |
-| Auth            | python-jose (JWT), passlib (bcrypt) |
-| Rate Limiting   | SlowAPI                             |
-| Settings        | pydantic-settings (BaseSettings)    |
-| AI Client       | Groq Python SDK                     |
-| PDF Parsing     | PyPDF2                              |
-| PPTX Parsing    | python-pptx                         |
-| DOCX Parsing    | python-docx                         |
-| OCR             | pytesseract + Pillow                |
+### Core services
 
-### Frontend
+| Layer | Technology |
+|---|---|
+| Frontend | React 19 + Vite + Tailwind |
+| API | FastAPI |
+| ORM | SQLAlchemy |
+| Database | PostgreSQL |
+| Queue / broker | Celery + Redis |
+| Text AI | DeepSeek |
+| Media AI | GLM |
 
-| Component       | Technology                          |
-|-----------------|-------------------------------------|
-| Library         | React 19                            |
-| Build Tool      | Vite 7                              |
-| CSS Framework   | Tailwind CSS v4                     |
-| Charts          | Recharts 3                          |
-| HTTP Client     | Axios                               |
-| Routing         | React Router v7                     |
-| Testing         | Vitest, Testing Library             |
-| Linting         | ESLint 9                            |
+### Media routing
 
-### AI Services
+| Capability | Runtime provider |
+|---|---|
+| Summary / concepts / flashcards | DeepSeek |
+| Knowledge graph | DeepSeek |
+| Learning path | DeepSeek |
+| Upload chat | DeepSeek |
+| Audio transcription | GLM |
+| Image OCR | GLM |
+| PDF OCR | GLM |
+| Video analysis | GLM |
 
-| Capability          | Model                               |
-|---------------------|-------------------------------------|
-| Text Generation     | Groq API -- llama-3.3-70b-versatile |
-| Audio Transcription | Groq API -- whisper-large-v3        |
+### High-level flow
 
-### Infrastructure
-
-| Component        | Technology                          |
-|------------------|-------------------------------------|
-| Containerization | Docker, Docker Compose              |
-| Reverse Proxy    | Nginx (Alpine)                      |
-| CI/CD            | GitHub Actions                      |
-
----
-
-## 3. System Architecture Diagram
-
-```
-+-------------------+
-|     Browser       |
-| (React 19 + Vite) |
-+--------+----------+
-         |
-         | HTTP / WebSocket
-         v
-+--------+----------+
-|      Nginx        |
-|  (reverse proxy)  |
-|  port 80          |
-+---+----------+----+
-    |          |
-    |          |
-    v          v
-+---+---+  +--+------------+       +------------------+
-|Frontend|  |   Backend     |       |  Celery Worker   |
-| (React)|  |  (FastAPI)    +------>+  (async tasks)   |
-| static |  |  port 8000    |       +--------+---------+
-+--------+  +--+-----+------+                |
-               |     |                       |
-               v     v                       v
-        +------++ +--+------+       +--------+---------+
-        |Postgres| |  Redis  |       |    Groq API      |
-        |  :5432 | |  :6379  |       | (LLM + Whisper)  |
-        +--------+ +---------+       +------------------+
+```text
+Browser
+  -> Frontend (React)
+  -> FastAPI backend
+      -> PostgreSQL
+      -> Redis
+      -> Celery worker
+          -> DeepSeek
+          -> GLM
 ```
 
-**Request flow:**
+## 3. Important runtime constraints
 
-1. The browser sends all requests to Nginx on port 80.
-2. Nginx routes `/api/*` and `/ws/*` paths to the FastAPI backend on port 8000.
-3. All other paths (`/`) are forwarded to the frontend static server.
-4. The backend reads and writes data to PostgreSQL via SQLAlchemy.
-5. File processing tasks are dispatched to Celery via Redis as the message broker.
-6. The Celery worker calls the Groq API for AI operations (text generation,
-   audio transcription) and writes results back to PostgreSQL.
+- Runtime database is PostgreSQL only.
+- Application URLs should use `postgresql+psycopg2://...`.
+- SQLite is used only in tests.
+- Upload analysis depends on the Celery worker.
+- In Docker, the backend and Celery worker share the same uploads volume so the worker can read uploaded files.
 
----
+## 4. Backend structure
 
-## 4. Backend Architecture
-
-The backend follows a layered architecture with clear separation of concerns:
-
-```
+```text
 backend/app/
-  main.py              # FastAPI application entry point
-  api/                 # API route handlers (controllers)
-    auth.py            # Authentication endpoints (register, login)
-    uploads.py         # File upload and processing endpoints
-    chat.py            # Multi-turn Q&A chat endpoints
-    share.py           # Sharing, comments, study groups endpoints
-    admin.py           # Admin user management endpoints
-  models/              # SQLAlchemy ORM models
-    user.py            # User model
-    course.py          # Course model
-    upload.py          # Upload model
-    study_material.py  # Summary, KeyConcept, Flashcard models
-    tag.py             # Tag model and upload_tags association table
-    conversation.py    # Conversation and Message models
-    study_session.py   # StudySession and FlashcardReview models
-    share.py           # SharedUpload, Comment, StudyGroup, GroupMember
-  services/            # Business logic layer
-    ai_service.py      # Groq API integration (LLM + Whisper)
-    spaced_repetition.py  # SM-2 algorithm implementation
-  core/                # Cross-cutting concerns
-    config.py          # Application settings (pydantic-settings)
-    database.py        # SQLAlchemy engine, session, Base
-    security.py        # JWT creation/validation, password hashing
-    rate_limit.py      # SlowAPI rate limiter instance
-    validators.py      # File MIME type and magic byte validation
-    sanitize.py        # Input sanitization and validation helpers
-  workers/             # Asynchronous task processing
-    celery_app.py      # Celery application configuration
-    tasks.py           # Background task definitions
-  schemas/             # Pydantic request/response schemas
+├── api/
+│   ├── auth.py
+│   ├── uploads.py
+│   ├── chat.py
+│   ├── share.py
+│   └── admin.py
+├── core/
+│   ├── config.py
+│   ├── database.py
+│   ├── security.py
+│   ├── rate_limit.py
+│   ├── sanitize.py
+│   └── validators.py
+├── models/
+├── schemas/
+├── services/
+│   ├── ai_service.py
+│   ├── spaced_repetition.py
+│   └── upload_access.py
+└── workers/
+    ├── celery_app.py
+    └── tasks.py
 ```
 
-### 4.1 API Layer
+## 5. API modules
 
-The API layer is organized into five router modules, all mounted under the `/api` prefix:
+### `auth.py`
 
-- **auth** (`/api/auth`): User registration and login. Returns JWT access tokens.
-- **uploads** (`/api/uploads`): File upload with validation, retrieval of processed
-  materials (summaries, flashcards, key concepts), knowledge graph generation,
-  learning path generation, and spaced repetition review endpoints.
-- **chat** (`/api/chat`): Create conversations tied to uploads, send messages, and
-  receive AI-generated responses with full document context.
-- **share** (`/api/share`): Share uploads with other users or publicly, manage
-  comments on shared materials, create and manage study groups.
-- **admin** (`/api/admin`): User listing, activation/deactivation, and role management.
-  Protected by admin-only authorization.
+Handles:
 
-### 4.2 Service Layer
+- register
+- login
+- current user
+- email verification
+- forgot password
+- reset password
 
-- **ai_service**: Central integration point with the Groq API. Provides functions for:
-  - Text extraction from multiple formats (PDF via PyPDF2, PPTX via python-pptx,
-    DOCX via python-docx, images via pytesseract OCR)
-  - Audio transcription via Whisper (whisper-large-v3)
-  - Language detection
-  - Summary generation (200-400 words)
-  - Key concept extraction with citations (5-10 concepts per document)
-  - Flashcard generation (8-15 Q&A pairs per document)
-  - Knowledge graph extraction (15-25 nodes with labeled edges)
-  - Learning path generation (5-8 ordered steps)
-  - Multi-turn contextual chat
-  - Multi-language support (English, Chinese, Japanese, Korean, and others)
+### `uploads.py`
 
-- **spaced_repetition**: Implements the SuperMemo SM-2 algorithm. Given a quality
-  rating (0-5), current repetition count, easiness factor, and interval, it computes
-  the next review date. Correct responses (quality >= 3) increase the interval
-  exponentially; incorrect responses reset to day 1.
+Handles:
 
-### 4.3 Worker Layer
+- single and batch upload
+- upload listing
+- upload detail
+- export
+- retry processing
+- course assignment
+- tags
+- summary / concept / flashcard edits
+- SM-2 flashcard review
+- statistics
+- quota
+- knowledge graph
+- learning path
 
-Celery is configured with Redis as both broker and result backend. The primary task is
-`process_upload`, which runs the full processing pipeline for an uploaded file:
+### `chat.py`
 
-1. Extract text content based on file type
-2. Detect the document language
-3. Generate an AI summary
-4. Extract key concepts with citations
-5. Generate flashcards
+Handles per-user conversations against one upload.
 
-The task includes retry logic (up to 2 retries with a 30-second delay) and updates the
-upload status through the lifecycle: `Pending` -> `Processing` -> `Completed` or `Failed`.
+Important behavior:
 
----
+- chat access is not owner-only
+- users with read access to an upload can create their own conversations for that upload
+- conversation records remain user-scoped
 
-## 5. Database Schema
+### `share.py`
 
-The application uses PostgreSQL with 16 tables (15 named tables plus 1 association table).
-All models inherit from SQLAlchemy's `declarative_base()`.
+Handles:
 
-### Entity Relationship Overview
+- direct shares
+- public/private visibility toggle
+- comments
+- study groups
+- group join approval
+- group invites
+- group messages
+- group file shares
 
-```
-users ──< courses
-users ──< uploads ──< summaries       (1:1)
-                  ──< key_concepts     (1:N)
-                  ──< flashcards       (1:N)
-                  ──< conversations ──< messages
-                  >──< tags            (M:N via upload_tags)
+### `admin.py`
 
-users ──< study_sessions
-users ──< flashcard_reviews
-flashcards ──< flashcard_reviews
+Handles:
 
-users ──< shared_uploads (as shared_by)
-users ──< shared_uploads (as shared_with)
-uploads ──< shared_uploads
-uploads ──< comments
-users ──< comments
+- user list / enable / disable / delete
+- platform-wide upload list
+- admin share toggle on uploads
+- global stats
+- runtime limit settings
 
-users ──< study_groups (as owner)
-study_groups ──< group_members
-users ──< group_members
-study_groups ──< shared_uploads
-```
+## 6. Upload processing pipeline
 
-### Table Details
+The Celery task `process_upload` is the main async job.
 
-#### users
-| Column          | Type         | Constraints                    |
-|-----------------|--------------|--------------------------------|
-| id              | Integer      | PK, auto-increment             |
-| username        | String(50)   | Unique, indexed, not null       |
-| email           | String(100)  | Unique, indexed, not null       |
-| hashed_password | String(255)  | Not null                        |
-| is_admin        | Boolean      | Default: false                  |
-| is_active       | Boolean      | Default: true                   |
-| created_at      | DateTime     | Default: UTC now                |
+### Step 1: extract text
 
-#### courses
-| Column     | Type        | Constraints                     |
-|------------|-------------|---------------------------------|
-| id         | Integer     | PK, auto-increment              |
-| user_id    | Integer     | FK -> users.id, not null        |
-| name       | String(100) | Not null                        |
-| created_at | DateTime    | Default: UTC now                |
+By file type:
 
-#### uploads
-| Column        | Type        | Constraints                      |
-|---------------|-------------|----------------------------------|
-| id            | Integer     | PK, auto-increment               |
-| user_id       | Integer     | FK -> users.id, not null         |
-| course_id     | Integer     | FK -> courses.id, nullable       |
-| filename      | String(255) | Not null                         |
-| file_type     | String(10)  | Not null (pdf/mp3/wav/pptx/docx/png/jpg) |
-| file_path     | String(500) | Not null                         |
-| file_size     | Integer     | Default: 0                       |
-| status        | String(20)  | Default: "Pending"               |
-| error_message | Text        | Nullable                         |
-| transcript    | Text        | Nullable                         |
-| language      | String(10)  | Default: "en"                    |
-| created_at    | DateTime    | Default: UTC now                 |
-| updated_at    | DateTime    | Default: UTC now, auto-update    |
+- `pdf` -> GLM OCR first, local PDF extraction fallback
+- `png/jpg/jpeg` -> GLM OCR first, local pytesseract fallback
+- `pptx/ppt` -> `python-pptx`
+- `docx` -> `python-docx`
+- `mp3/wav` -> GLM ASR
+- `mp4/mov` -> GLM ASR + sampled frame analysis
 
-#### summaries
-| Column     | Type    | Constraints                          |
-|------------|---------|--------------------------------------|
-| id         | Integer | PK, auto-increment                   |
-| upload_id  | Integer | FK -> uploads.id, unique, not null   |
-| content    | Text    | Not null                             |
-| created_at | DateTime| Default: UTC now                     |
+### Step 2: detect language
 
-#### key_concepts
-| Column      | Type        | Constraints                     |
-|-------------|-------------|---------------------------------|
-| id          | Integer     | PK, auto-increment              |
-| upload_id   | Integer     | FK -> uploads.id, not null      |
-| title       | String(255) | Not null                        |
-| description | Text        | Not null                        |
-| citation    | Text        | Nullable                        |
-| created_at  | DateTime    | Default: UTC now                |
+DeepSeek is used to infer the primary language code.
 
-#### flashcards
-| Column     | Type    | Constraints                         |
-|------------|---------|-------------------------------------|
-| id         | Integer | PK, auto-increment                  |
-| upload_id  | Integer | FK -> uploads.id, not null          |
-| question   | Text    | Not null                            |
-| answer     | Text    | Not null                            |
-| is_known   | Boolean | Default: false                      |
-| created_at | DateTime| Default: UTC now                    |
+### Step 3: generate study assets
 
-#### tags
-| Column  | Type       | Constraints                        |
-|---------|------------|------------------------------------|
-| id      | Integer    | PK, auto-increment                 |
-| user_id | Integer    | FK -> users.id, not null           |
-| name    | String(50) | Not null                           |
+DeepSeek generates:
 
-#### upload_tags (association table)
-| Column    | Type    | Constraints                                  |
-|-----------|---------|----------------------------------------------|
-| upload_id | Integer | PK, FK -> uploads.id (CASCADE on delete)     |
-| tag_id    | Integer | PK, FK -> tags.id (CASCADE on delete)        |
+- summary
+- key concepts
+- flashcards
 
-#### conversations
-| Column     | Type        | Constraints                     |
-|------------|-------------|---------------------------------|
-| id         | Integer     | PK, auto-increment              |
-| user_id    | Integer     | FK -> users.id, not null        |
-| upload_id  | Integer     | FK -> uploads.id, not null      |
-| title      | String(255) | Default: "New Chat"             |
-| created_at | DateTime    | Default: UTC now                |
+### Step 4: persist
 
-#### messages
-| Column          | Type       | Constraints                      |
-|-----------------|------------|----------------------------------|
-| id              | Integer    | PK, auto-increment               |
-| conversation_id | Integer    | FK -> conversations.id, not null |
-| role            | String(20) | Not null ("user" or "assistant") |
-| content         | Text       | Not null                         |
-| created_at      | DateTime   | Default: UTC now                 |
+The worker stores:
 
-#### study_sessions
-| Column           | Type       | Constraints                     |
-|------------------|------------|---------------------------------|
-| id               | Integer    | PK, auto-increment              |
-| user_id          | Integer    | FK -> users.id, not null        |
-| upload_id        | Integer    | FK -> uploads.id, nullable      |
-| activity_type    | String(50) | Not null                        |
-| cards_reviewed   | Integer    | Default: 0                      |
-| cards_known      | Integer    | Default: 0                      |
-| duration_seconds | Integer    | Default: 0                      |
-| created_at       | DateTime   | Default: UTC now                |
+- upload transcript
+- language
+- summary row
+- key concept rows
+- flashcard rows
 
-#### flashcard_reviews
-| Column        | Type     | Constraints                        |
-|---------------|----------|------------------------------------|
-| id            | Integer  | PK, auto-increment                 |
-| flashcard_id  | Integer  | FK -> flashcards.id, not null      |
-| user_id       | Integer  | FK -> users.id, not null           |
-| quality       | Integer  | Not null (0-5, SM-2 scale)         |
-| easiness      | Float    | Default: 2.5                       |
-| interval_days | Integer  | Default: 1                         |
-| repetitions   | Integer  | Default: 0                         |
-| next_review   | DateTime | Not null                           |
-| reviewed_at   | DateTime | Default: UTC now                   |
+### Status lifecycle
 
-#### shared_uploads
-| Column      | Type    | Constraints                          |
-|-------------|---------|--------------------------------------|
-| id          | Integer | PK, auto-increment                   |
-| upload_id   | Integer | FK -> uploads.id, not null           |
-| shared_by   | Integer | FK -> users.id, not null             |
-| shared_with | Integer | FK -> users.id, nullable (null=public)|
-| group_id    | Integer | FK -> study_groups.id, nullable      |
-| message     | Text    | Nullable                             |
-| created_at  | DateTime| Default: UTC now                     |
-
-#### comments
-| Column     | Type    | Constraints                         |
-|------------|---------|-------------------------------------|
-| id         | Integer | PK, auto-increment                  |
-| upload_id  | Integer | FK -> uploads.id, not null          |
-| user_id    | Integer | FK -> users.id, not null            |
-| content    | Text    | Not null                            |
-| created_at | DateTime| Default: UTC now                    |
-
-#### study_groups
-| Column      | Type        | Constraints                     |
-|-------------|-------------|---------------------------------|
-| id          | Integer     | PK, auto-increment              |
-| name        | String(100) | Not null                        |
-| description | Text        | Nullable                        |
-| owner_id    | Integer     | FK -> users.id, not null        |
-| created_at  | DateTime    | Default: UTC now                |
-
-#### group_members
-| Column    | Type       | Constraints                        |
-|-----------|------------|------------------------------------|
-| id        | Integer    | PK, auto-increment                 |
-| group_id  | Integer    | FK -> study_groups.id, not null    |
-| user_id   | Integer    | FK -> users.id, not null           |
-| role      | String(20) | Default: "member"                  |
-| joined_at | DateTime   | Default: UTC now                   |
-
----
-
-## 6. Frontend Architecture
-
-The frontend is a single-page application built with React 19 and bundled by Vite 7.
-
-### 6.1 Page Components
-
-| Route            | Component        | Description                              |
-|------------------|------------------|------------------------------------------|
-| `/login`         | LoginPage        | User registration and login forms        |
-| `/`              | DashboardPage    | Main dashboard with upload list and stats |
-| `/uploads/:id`   | UploadDetailPage | View summary, flashcards, concepts, chat |
-| `/stats`         | StatsPage        | Study statistics and heatmap             |
-| `/admin`         | AdminPage        | Admin user management panel              |
-| `/shared`        | SharedPage       | Browse shared materials                  |
-| `/groups`        | StudyGroupPage   | Study group management                   |
-
-All routes except `/login` are wrapped in a `PrivateRoute` component that checks
-authentication state and redirects unauthenticated users to the login page.
-
-### 6.2 Shared Components
-
-| Component       | Purpose                                              |
-|-----------------|------------------------------------------------------|
-| Navbar          | Top navigation bar with links and user menu          |
-| ChatPanel       | Multi-turn Q&A chat interface for document questions  |
-| KnowledgeGraph  | Interactive node-and-edge visualization of concepts   |
-| StudyHeatmap    | Calendar heatmap showing daily study activity         |
-| CommentSection  | Threaded comments on shared uploads                   |
-
-### 6.3 State Management
-
-- **AuthContext**: Manages user authentication state (current user, JWT token,
-  login/logout functions). Wraps the entire application.
-- **ThemeContext**: Manages light/dark theme preference. Wraps the entire application
-  inside AuthContext.
-- **Local State**: Individual components use React hooks (`useState`, `useEffect`)
-  for component-level state. No global state library is used.
-
-### 6.4 Routing
-
-React Router v7 is used for client-side routing. The `BrowserRouter` wraps all routes,
-and the `PrivateRoute` higher-order component enforces authentication:
-
-```jsx
-function PrivateRoute({ children }) {
-  const { user, loading } = useAuth();
-  if (loading) return null;
-  return user ? children : <Navigate to="/login" />;
-}
+```text
+Pending -> Processing -> Completed
+Pending -> Processing -> Failed
 ```
 
----
+## 7. Access control model
 
-## 7. Security
+### Authentication
 
-### 7.1 Authentication
+- JWT bearer tokens
+- `get_current_user` resolves the authenticated user
+- `get_admin_user` enforces admin-only routes
 
-- **JWT Tokens**: Users authenticate via username/password and receive a JWT access
-  token signed with HS256. Tokens expire after 24 hours (configurable via
-  `ACCESS_TOKEN_EXPIRE_MINUTES`).
-- **Password Hashing**: All passwords are hashed using bcrypt via the `passlib` library.
-  Plaintext passwords are never stored.
-- **OAuth2 Bearer**: The FastAPI `OAuth2PasswordBearer` scheme extracts tokens from
-  the `Authorization: Bearer <token>` header.
+### Upload read access
 
-### 7.2 Authorization
+The central read-access logic lives in `services/upload_access.py`.
 
-- **Role-based Access**: The `get_admin_user` dependency enforces admin-only access
-  on admin endpoints, returning HTTP 403 for non-admin users.
-- **Resource Ownership**: API endpoints verify that users can only access their own
-  uploads, conversations, and other resources.
+An upload is readable when the user is:
 
-### 7.3 Rate Limiting
+- the owner
+- an admin
+- a direct recipient of a share
+- a member of a group the file was shared into
+- a viewer of a file marked `is_shared=true`
+- a viewer of an explicit public share record
 
-- SlowAPI is integrated at the application level using `get_remote_address` as the
-  key function. Rate limit exceeded responses are handled by a custom exception handler.
+This same logic is used by:
 
-### 7.4 File Upload Security
+- upload detail
+- knowledge graph
+- export
+- comments
+- upload chat
 
-- **MIME Type Validation**: Uploaded files are checked against a whitelist of allowed
-  MIME types per file extension.
-- **Magic Byte Validation**: File content is verified against known magic byte
-  signatures (e.g., `%PDF` for PDF, `\x89PNG` for PNG, `PK\x03\x04` for PPTX/DOCX)
-  to prevent extension spoofing.
-- **Size Limits**: Maximum upload size is 50 MB (configurable). Audio files are limited
-  to 60 minutes, and PDFs to 200 pages.
-- **Per-user Limits**: Each user is limited to 50 uploads.
+### Owner-only operations
 
-### 7.5 Input Sanitization
+Still owner-only:
 
-- HTML tags are stripped from user input using regex.
-- Special characters are escaped via `html.escape()`.
-- String length is enforced (default 500 characters).
-- Usernames are validated against `^[a-zA-Z0-9_]{3,50}$`.
-- Email addresses are validated with a regex pattern and limited to 100 characters.
+- delete upload
+- retry upload
+- edit summary
+- edit concepts
+- edit flashcards
+- toggle upload public/private visibility
+- create outgoing shares
 
-### 7.6 CORS
+## 8. Visibility semantics
 
-CORS middleware is configured to allow requests from the development origins
-(`http://localhost:5173` and `http://localhost:3000`) with credentials, all methods,
-and all headers.
+### Upload-level visibility
 
----
+`uploads.is_shared` controls whether a file is globally visible in shared materials.
 
-## 8. Deployment
+- `false`: private by default
+- `true`: visible to other users in shared materials
 
-### 8.1 Docker Compose Services
+### Group sharing
 
-The production deployment uses Docker Compose with six services:
+If a file is private but shared to a group:
 
-| Service        | Image / Build       | Port  | Purpose                          |
-|----------------|---------------------|-------|----------------------------------|
-| db             | postgres:16-alpine  | 5432  | Primary database                 |
-| redis          | redis:7-alpine      | 6379  | Message broker and cache         |
-| backend        | ./backend (build)   | 8000  | FastAPI application server       |
-| celery_worker  | ./backend (build)   | --    | Async task processing            |
-| frontend       | ./frontend (build)  | --    | React static file server         |
-| nginx          | nginx:alpine        | 80    | Reverse proxy (public entry)     |
+- group members can access it
+- non-members cannot
+- it does not become globally public
 
-Service dependencies are enforced with health checks:
-- `backend` and `celery_worker` wait for `db` and `redis` to be healthy.
-- `nginx` waits for `backend` and `frontend` to be available.
+### Share records
 
-### 8.2 Nginx Configuration
+`shared_uploads` stores:
 
-Nginx listens on port 80 and routes traffic as follows:
-- `/api/*` -> FastAPI backend (port 8000)
-- `/ws/*` -> FastAPI backend with WebSocket upgrade headers
-- `/*` -> Frontend static server
+- direct shares
+- group shares
+- optional public share records
+- per-share `permission`
 
-The `client_max_body_size` is set to 50M to match the backend upload limit.
+## 9. Database model summary
 
-### 8.3 CI/CD Pipeline
+Main tables:
 
-GitHub Actions runs two workflow files:
+- `users`
+- `courses`
+- `uploads`
+- `summaries`
+- `key_concepts`
+- `flashcards`
+- `flashcard_reviews`
+- `study_sessions`
+- `conversations`
+- `chat_messages`
+- `tags`
+- `shared_uploads`
+- `comments`
+- `study_groups`
+- `group_members`
+- `join_requests`
+- `group_invites`
+- `group_messages`
 
-**CI (`ci.yml`)** -- Triggered on push to `main`/`develop` and pull requests to `main`:
-- **backend-test**: Spins up a PostgreSQL 16 service, installs Python 3.12 dependencies,
-  and runs `pytest tests/ -v`.
-- **frontend-test**: Installs Node.js 20 dependencies, runs `npm test`, and verifies
-  the production build with `npm run build`.
-- **lint**: Runs ESLint on the frontend code.
+Important upload fields:
 
-**Deploy (`deploy.yml`)** -- Triggered on push to `main`:
-- Builds all Docker images using `docker-compose.prod.yml`.
-- Placeholder deploy step (to be configured per hosting provider).
+| Field | Meaning |
+|---|---|
+| `status` | Pending / Processing / Completed / Failed |
+| `is_shared` | public visibility toggle |
+| `transcript` | extracted text or transcription |
+| `language` | detected language code |
+| `course_id` | optional course grouping |
 
-### 8.4 Environment Variables
+Important share/group fields:
 
-The application is configured via environment variables (loaded from `.env` in development):
+| Field | Meaning |
+|---|---|
+| `shared_uploads.permission` | current share permission string, default `read` |
+| `study_groups.join_mode` | `open` or `approval` |
+| `group_members.role` | `owner` or `member` |
 
-| Variable                    | Default                              | Description                    |
-|-----------------------------|--------------------------------------|--------------------------------|
-| `DATABASE_URL`              | postgresql://studyapp:...@localhost  | PostgreSQL connection string   |
-| `REDIS_URL`                 | redis://localhost:6379/0             | Redis connection string        |
-| `GROQ_API_KEY`              | (empty)                              | Groq API key for AI services   |
-| `SECRET_KEY`                | change-this-to-a-random-secret-key   | JWT signing secret             |
-| `ACCESS_TOKEN_EXPIRE_MINUTES`| 1440 (24 hours)                     | JWT token lifetime             |
-| `UPLOAD_DIR`                | ./uploads                            | File storage directory         |
-| `MAX_UPLOAD_SIZE_MB`        | 50                                   | Maximum file upload size       |
-| `MAX_UPLOADS_PER_USER`      | 50                                   | Per-user upload limit          |
-| `MAX_AUDIO_MINUTES`         | 60                                   | Maximum audio file duration    |
-| `MAX_PDF_PAGES`             | 200                                  | Maximum PDF page count         |
+## 10. Frontend structure
+
+Main routes:
+
+| Route | Purpose |
+|---|---|
+| `/login` | auth |
+| `/` | dashboard / upload list |
+| `/uploads/:id` | upload detail |
+| `/stats` | study stats |
+| `/shared` | shared materials |
+| `/groups` | study groups |
+| `/admin` | admin console |
+
+Key pages:
+
+- `DashboardPage.jsx`
+- `UploadDetailPage.jsx`
+- `SharedPage.jsx`
+- `StudyGroupPage.jsx`
+- `AdminPage.jsx`
+
+Key shared components:
+
+- `Navbar.jsx`
+- `ChatPanel.jsx`
+- `KnowledgeGraph.jsx`
+- `CommentSection.jsx`
+
+## 11. Docker deployment
+
+### `docker-compose.yml`
+
+For local infrastructure only:
+
+- PostgreSQL
+- Redis
+
+### `docker-compose.prod.yml`
+
+For full production-style stack:
+
+- PostgreSQL
+- Redis
+- backend
+- celery worker
+- frontend
+- nginx
+
+Important production detail:
+
+- backend and worker both mount the `uploads_data` volume at `/app/uploads`
+
+## 12. Admin model
+
+- No default admin user is created automatically.
+- Admins are regular users with `is_admin=true`.
+- Admins can list all uploads from `/api/admin/uploads`.
+- Admins can also open any upload detail through the normal upload detail route because upload read access explicitly allows admins.
+
+## 13. Testing notes
+
+Backend tests use SQLite in-memory for speed and isolation.
+
+That test-only SQLite path does not change runtime requirements:
+
+- local runtime: PostgreSQL
+- Docker runtime: PostgreSQL

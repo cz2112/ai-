@@ -1,619 +1,637 @@
-import { useState, useEffect, useRef } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+
 import Navbar from '../components/Navbar';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
+import getApiErrorMessage from '../services/errorMessage';
+
 
 export default function StudyGroupPage() {
   const { user } = useAuth();
-  const location = useLocation();
   const [myGroups, setMyGroups] = useState([]);
   const [allGroups, setAllGroups] = useState([]);
-  const [tab, setTab] = useState('my');
-  const [showCreate, setShowCreate] = useState(false);
-  const [newName, setNewName] = useState('');
-  const [newDesc, setNewDesc] = useState('');
-  const [newJoinMode, setNewJoinMode] = useState('open');
-  const [selectedGroup, setSelectedGroup] = useState(null);
+  const [invites, setInvites] = useState([]);
   const [members, setMembers] = useState([]);
-  const [joinRequests, setJoinRequests] = useState([]);
-  const [inviteInput, setInviteInput] = useState('');
-  const [myInvites, setMyInvites] = useState([]);
-  const [msg, setMsg] = useState('');
-  const [chatMessages, setChatMessages] = useState([]);
-  const [chatInput, setChatInput] = useState('');
-  const [groupPanel, setGroupPanel] = useState('members'); // 'members', 'chat', 'files'
-  const chatEndRef = useRef(null);
+  const [groupMessages, setGroupMessages] = useState([]);
   const [groupFiles, setGroupFiles] = useState([]);
+  const [joinRequests, setJoinRequests] = useState([]);
   const [myUploads, setMyUploads] = useState([]);
-  const [shareFileId, setShareFileId] = useState('');
+  const [selectedGroup, setSelectedGroup] = useState(null);
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [joinMode, setJoinMode] = useState('open');
+  const [groupMessage, setGroupMessage] = useState('');
+  const [selectedUploadId, setSelectedUploadId] = useState('');
+  const [inviteQuery, setInviteQuery] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [workspaceLoading, setWorkspaceLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+
+  const myGroupIds = useMemo(() => new Set(myGroups.map((group) => group.id)), [myGroups]);
+  const discoverGroups = useMemo(
+    () => allGroups.filter((group) => !myGroupIds.has(group.id)),
+    [allGroups, myGroupIds]
+  );
+
+  const selectedIsOwner = selectedGroup && user?.id === selectedGroup.owner_id;
+
+  const loadPage = async () => {
+    setError('');
+    try {
+      const [myGroupsRes, allGroupsRes, invitesRes, uploadsRes] = await Promise.all([
+        api.get('/share/groups'),
+        api.get('/share/groups/all'),
+        api.get('/share/groups/invites/mine'),
+        api.get('/uploads/', { params: { status: 'Completed' } }),
+      ]);
+      const myGroupsData = myGroupsRes.data || [];
+      setMyGroups(myGroupsData);
+      setAllGroups(allGroupsRes.data || []);
+      setInvites(invitesRes.data || []);
+      setMyUploads(uploadsRes.data || []);
+
+      if (selectedGroup) {
+        const refreshed = myGroupsData.find((group) => group.id === selectedGroup.id);
+        if (refreshed) {
+          await loadWorkspace(refreshed, false);
+        } else {
+          setSelectedGroup(null);
+          setMembers([]);
+          setGroupMessages([]);
+          setGroupFiles([]);
+          setJoinRequests([]);
+        }
+      }
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Failed to load study groups'));
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    fetchMyGroups();
-    fetchAllGroups();
-    fetchMyInvites();
-  }, [location.key]);
+    loadPage();
+  }, []);
 
-  const fetchMyGroups = async () => {
+  const loadWorkspace = async (group, replaceSelection = true) => {
+    setWorkspaceLoading(true);
+    setError('');
     try {
-      const res = await api.get('/share/groups');
-      setMyGroups(res.data);
-    } catch (err) { console.error('fetchMyGroups', err); }
-  };
-
-  const fetchAllGroups = async () => {
-    try {
-      const res = await api.get('/share/groups/all');
-      setAllGroups(res.data);
-    } catch (err) { console.error('fetchAllGroups', err); }
-  };
-
-  const fetchMyInvites = async () => {
-    try {
-      const res = await api.get('/share/groups/invites/mine');
-      setMyInvites(res.data);
-    } catch {}
-  };
-
-  const handleCreate = async (e) => {
-    e.preventDefault();
-    if (!newName.trim()) return;
-    try {
-      await api.post('/share/groups', {
-        name: newName.trim(),
-        description: newDesc.trim() || null,
-        join_mode: newJoinMode,
-      });
-      setNewName('');
-      setNewDesc('');
-      setNewJoinMode('open');
-      setShowCreate(false);
-      await fetchMyGroups();
-      await fetchAllGroups();
-    } catch {}
-  };
-
-  const handleJoin = async (group) => {
-    try {
-      const res = await api.post(`/share/groups/${group.id}/join`);
-      setMsg(res.data.detail);
-      setTimeout(() => setMsg(''), 3000);
-      await fetchMyGroups();
-      await fetchAllGroups();
+      const requests = [
+        api.get(`/share/groups/${group.id}/members`),
+        api.get(`/share/groups/${group.id}/messages`),
+        api.get(`/share/groups/${group.id}/files`),
+      ];
+      if (user?.id === group.owner_id) {
+        requests.push(api.get(`/share/groups/${group.id}/join-requests`));
+      }
+      const responses = await Promise.all(requests);
+      if (replaceSelection) {
+        setSelectedGroup(group);
+      }
+      setMembers(responses[0].data || []);
+      setGroupMessages(responses[1].data || []);
+      setGroupFiles(responses[2].data || []);
+      setJoinRequests(user?.id === group.owner_id ? (responses[3]?.data || []) : []);
     } catch (err) {
-      setMsg(err.response?.data?.detail || 'Failed');
-      setTimeout(() => setMsg(''), 3000);
-    }
-  };
-
-  const handleLeave = async (groupId) => {
-    try {
-      await api.post(`/share/groups/${groupId}/leave`);
-      await fetchMyGroups();
-      await fetchAllGroups();
-      if (selectedGroup?.id === groupId) setSelectedGroup(null);
-    } catch {}
-  };
-
-  const handleDelete = async (groupId) => {
-    if (!confirm('Delete this group?')) return;
-    try {
-      await api.delete(`/share/groups/${groupId}`);
-      await fetchMyGroups();
-      await fetchAllGroups();
-      if (selectedGroup?.id === groupId) setSelectedGroup(null);
-    } catch {}
-  };
-
-  const viewMembers = async (group) => {
-    setSelectedGroup(group);
-    setGroupPanel('members');
-    try {
-      const res = await api.get(`/share/groups/${group.id}/members`);
-      setMembers(res.data);
-    } catch {}
-    try {
-      const res = await api.get(`/share/groups/${group.id}/join-requests`);
-      setJoinRequests(res.data);
-    } catch {
+      setError(getApiErrorMessage(err, 'Failed to load group workspace'));
+      setMembers([]);
+      setGroupMessages([]);
+      setGroupFiles([]);
       setJoinRequests([]);
+    } finally {
+      setWorkspaceLoading(false);
     }
   };
 
-  const handleApprove = async (groupId, requestId) => {
-    try {
-      await api.post(`/share/groups/${groupId}/join-requests/${requestId}/approve`);
-      await viewMembers(selectedGroup);
-    } catch {}
-  };
-
-  const handleReject = async (groupId, requestId) => {
-    try {
-      await api.post(`/share/groups/${groupId}/join-requests/${requestId}/reject`);
-      await viewMembers(selectedGroup);
-    } catch {}
-  };
-
-  const handleInvite = async (e) => {
+  const createGroup = async (e) => {
     e.preventDefault();
-    if (!inviteInput.trim() || !selectedGroup) return;
+    setError('');
+    setMessage('');
     try {
-      const res = await api.post(`/share/groups/${selectedGroup.id}/invite`, {
-        username_or_email: inviteInput.trim(),
+      const res = await api.post('/share/groups', {
+        name: name.trim(),
+        description: description.trim() || null,
+        join_mode: joinMode,
       });
-      setMsg(`Invited ${res.data.invitee_name}`);
-      setInviteInput('');
-      setTimeout(() => setMsg(''), 3000);
+      setName('');
+      setDescription('');
+      setJoinMode('open');
+      setMessage('Study group created.');
+      await loadPage();
+      await loadWorkspace(res.data);
     } catch (err) {
-      setMsg(err.response?.data?.detail || 'Invite failed');
-      setTimeout(() => setMsg(''), 3000);
+      setError(getApiErrorMessage(err, 'Failed to create study group'));
     }
   };
 
-  const handleAcceptInvite = async (inviteId) => {
+  const joinGroup = async (groupId) => {
+    setError('');
+    setMessage('');
     try {
-      await api.post(`/share/groups/invites/${inviteId}/accept`);
-      await fetchMyInvites();
-      await fetchMyGroups();
-      await fetchAllGroups();
-    } catch {}
-  };
-
-  const handleDeclineInvite = async (inviteId) => {
-    try {
-      await api.post(`/share/groups/invites/${inviteId}/decline`);
-      await fetchMyInvites();
-    } catch {}
-  };
-
-  const fetchMessages = async (groupId) => {
-    try {
-      const res = await api.get(`/share/groups/${groupId}/messages`);
-      setChatMessages(res.data);
-      setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
-    } catch {}
-  };
-
-  const handleSendMessage = async (e) => {
-    e.preventDefault();
-    if (!chatInput.trim() || !selectedGroup) return;
-    try {
-      await api.post(`/share/groups/${selectedGroup.id}/messages`, { content: chatInput.trim() });
-      setChatInput('');
-      await fetchMessages(selectedGroup.id);
-    } catch {}
-  };
-
-  const openChat = (group) => {
-    setSelectedGroup(group);
-    setGroupPanel('chat');
-    fetchMessages(group.id);
-  };
-
-  const fetchGroupFiles = async (groupId) => {
-    try {
-      const res = await api.get(`/share/groups/${groupId}/files`);
-      setGroupFiles(res.data);
-    } catch {}
-  };
-
-  const fetchMyUploads = async () => {
-    try {
-      const res = await api.get('/uploads/');
-      setMyUploads(res.data);
-    } catch {}
-  };
-
-  const openFiles = (group) => {
-    setSelectedGroup(group);
-    setGroupPanel('files');
-    fetchGroupFiles(group.id);
-    fetchMyUploads();
-  };
-
-  const handleShareFile = async (e) => {
-    e.preventDefault();
-    if (!shareFileId || !selectedGroup) return;
-    try {
-      await api.post(`/share/groups/${selectedGroup.id}/files`, { upload_id: parseInt(shareFileId) });
-      setShareFileId('');
-      setMsg('File shared to group');
-      setTimeout(() => setMsg(''), 3000);
-      await fetchGroupFiles(selectedGroup.id);
+      const res = await api.post(`/share/groups/${groupId}/join`);
+      setMessage(res.data?.detail || 'Joined group.');
+      await loadPage();
     } catch (err) {
-      setMsg(err.response?.data?.detail || 'Share failed');
-      setTimeout(() => setMsg(''), 3000);
+      setError(getApiErrorMessage(err, 'Failed to join group'));
     }
   };
 
-  const handleRemoveFile = async (shareId) => {
+  const leaveGroup = async (groupId) => {
+    setError('');
+    setMessage('');
+    try {
+      const res = await api.post(`/share/groups/${groupId}/leave`);
+      setMessage(res.data?.detail || 'Left group.');
+      if (selectedGroup?.id === groupId) {
+        setSelectedGroup(null);
+        setMembers([]);
+        setGroupMessages([]);
+        setGroupFiles([]);
+        setJoinRequests([]);
+      }
+      await loadPage();
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Failed to leave group'));
+    }
+  };
+
+  const respondInvite = async (inviteId, action) => {
+    setError('');
+    setMessage('');
+    try {
+      const res = await api.post(`/share/groups/invites/${inviteId}/${action}`);
+      setMessage(res.data?.detail || 'Invite updated.');
+      await loadPage();
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Failed to update invite'));
+    }
+  };
+
+  const sendGroupMessage = async (e) => {
+    e.preventDefault();
+    if (!selectedGroup || !groupMessage.trim()) return;
+
+    setError('');
+    try {
+      const res = await api.post(`/share/groups/${selectedGroup.id}/messages`, {
+        content: groupMessage.trim(),
+      });
+      setGroupMessages((prev) => [...prev, res.data]);
+      setGroupMessage('');
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Failed to send message'));
+    }
+  };
+
+  const shareFileToGroup = async () => {
+    if (!selectedGroup || !selectedUploadId) return;
+
+    setError('');
+    setMessage('');
+    try {
+      const res = await api.post(`/share/groups/${selectedGroup.id}/files`, {
+        upload_id: parseInt(selectedUploadId, 10),
+      });
+      setGroupFiles((prev) => [res.data, ...prev]);
+      setSelectedUploadId('');
+      setMessage('File shared to group.');
+      await api.post(`/share/groups/${selectedGroup.id}/messages`, {
+        content: `Shared file: ${res.data.filename}`,
+      });
+      await loadWorkspace(selectedGroup, false);
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Failed to share file'));
+    }
+  };
+
+  const removeGroupFile = async (shareId) => {
     if (!selectedGroup) return;
+
+    setError('');
     try {
       await api.delete(`/share/groups/${selectedGroup.id}/files/${shareId}`);
-      await fetchGroupFiles(selectedGroup.id);
-    } catch {}
-  };
-
-  const handleToggleJoinMode = async (group) => {
-    const newMode = group.join_mode === 'approval' ? 'open' : 'approval';
-    try {
-      await api.patch(`/share/groups/${group.id}`, { join_mode: newMode });
-      await fetchMyGroups();
-      await fetchAllGroups();
-      setMsg(newMode === 'approval' ? 'Join mode: Approval Required' : 'Join mode: Open');
-      setTimeout(() => setMsg(''), 3000);
+      setGroupFiles((prev) => prev.filter((file) => file.id !== shareId));
     } catch (err) {
-      setMsg(err.response?.data?.detail || 'Update failed');
-      setTimeout(() => setMsg(''), 3000);
+      setError(getApiErrorMessage(err, 'Failed to remove file'));
     }
   };
 
-  const tabCls = (t) =>
-    `px-4 py-2 text-sm font-medium rounded-lg transition ${
-      tab === t
-        ? 'bg-blue-600 text-white'
-        : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
-    }`;
+  const inviteToGroup = async (e) => {
+    e.preventDefault();
+    if (!selectedGroup || !inviteQuery.trim()) return;
 
-  const myGroupIds = new Set(myGroups.map((g) => g.id));
+    setError('');
+    setMessage('');
+    try {
+      const res = await api.post(`/share/groups/${selectedGroup.id}/invite`, {
+        username_or_email: inviteQuery.trim(),
+      });
+      setInviteQuery('');
+      setMessage(`Invited ${res.data.invitee_name || 'user'} to the group.`);
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Failed to send invite'));
+    }
+  };
+
+  const respondJoinRequest = async (requestId, action) => {
+    if (!selectedGroup) return;
+
+    setError('');
+    try {
+      const res = await api.post(`/share/groups/${selectedGroup.id}/join-requests/${requestId}/${action}`);
+      setMessage(res.data?.detail || 'Join request updated.');
+      await loadWorkspace(selectedGroup, false);
+      await loadPage();
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Failed to update join request'));
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       <Navbar />
-      <main className="max-w-5xl mx-auto px-4 py-8">
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Study Groups</h1>
+      <main className="max-w-7xl mx-auto px-4 py-8">
+        <div className="flex items-center justify-between gap-4 mb-6">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Study Groups</h1>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Create groups, chat with members, and share uploaded materials.</p>
+          </div>
           <button
-            onClick={() => setShowCreate(!showCreate)}
-            className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 transition"
+            onClick={loadPage}
+            className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition"
           >
-            {showCreate ? 'Cancel' : '+ Create Group'}
+            Refresh
           </button>
         </div>
 
-        {msg && (
-          <div className="mb-4 px-4 py-2 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-lg text-sm">
-            {msg}
+        {error && (
+          <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 p-3 rounded-lg mb-6 text-sm">
+            {error}
           </div>
         )}
 
-        {showCreate && (
-          <form onSubmit={handleCreate} className="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-4 mb-6 space-y-3">
-            <input
-              type="text"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              placeholder="Group name"
-              className="w-full text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
-            />
-            <textarea
-              value={newDesc}
-              onChange={(e) => setNewDesc(e.target.value)}
-              placeholder="Description (optional)"
-              rows={2}
-              className="w-full text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
-            />
-            <div>
-              <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">Join Mode</label>
-              <select
-                value={newJoinMode}
-                onChange={(e) => setNewJoinMode(e.target.value)}
-                className="text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
-              >
-                <option value="open">Open (anyone can join)</option>
-                <option value="approval">Approval Required</option>
-              </select>
+        {message && (
+          <div className="bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 p-3 rounded-lg mb-6 text-sm">
+            {message}
+          </div>
+        )}
+
+        <div className="grid lg:grid-cols-[380px_minmax(0,1fr)] gap-6">
+          <section className="space-y-6">
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-5">
+              <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-4">Create a Group</h2>
+              <form onSubmit={createGroup} className="space-y-3">
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Group name"
+                  className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                  required
+                />
+                <textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Description"
+                  rows={3}
+                  className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                />
+                <div className="flex flex-wrap gap-3 items-center">
+                  <select
+                    value={joinMode}
+                    onChange={(e) => setJoinMode(e.target.value)}
+                    className="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                  >
+                    <option value="open">Open join</option>
+                    <option value="approval">Approval required</option>
+                  </select>
+                  <button
+                    type="submit"
+                    className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition"
+                  >
+                    Create Group
+                  </button>
+                </div>
+              </form>
             </div>
-            <button type="submit" className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-green-700 transition">
-              Create
-            </button>
-          </form>
-        )}
 
-        <div className="flex gap-2 mb-6">
-          <button className={tabCls('my')} onClick={() => setTab('my')}>My Groups ({myGroups.length})</button>
-          <button className={tabCls('all')} onClick={() => setTab('all')}>All Groups ({allGroups.length})</button>
-          <button className={tabCls('invites')} onClick={() => { setTab('invites'); fetchMyInvites(); }}>
-            Invites ({myInvites.length})
-          </button>
-        </div>
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-5">
+              <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-4">My Groups</h2>
+              {loading ? (
+                <p className="text-sm text-gray-500 dark:text-gray-400">Loading groups...</p>
+              ) : myGroups.length === 0 ? (
+                <p className="text-sm text-gray-500 dark:text-gray-400">You have not joined any groups yet.</p>
+              ) : (
+                <div className="space-y-3">
+                  {myGroups.map((group) => {
+                    const isOwner = user?.id === group.owner_id;
+                    const isSelected = selectedGroup?.id === group.id;
+                    return (
+                      <div key={group.id} className={`border rounded-lg p-4 ${isSelected ? 'border-blue-500 dark:border-blue-500' : 'border-gray-200 dark:border-gray-700'}`}>
+                        <div className="flex flex-wrap items-center gap-2 mb-2">
+                          <h3 className="font-semibold text-gray-900 dark:text-gray-100">{group.name}</h3>
+                          <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+                            {group.join_mode === 'approval' ? 'Approval' : 'Open'}
+                          </span>
+                          {isOwner && (
+                            <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">
+                              Owner
+                            </span>
+                          )}
+                        </div>
+                        {group.description && (
+                          <p className="text-sm text-gray-600 dark:text-gray-300 mb-3">{group.description}</p>
+                        )}
+                        <div className="flex flex-wrap gap-4 text-xs text-gray-500 dark:text-gray-400 mb-3">
+                          <span>{group.member_count} members</span>
+                          <span>Owner: {group.owner_name || 'Unknown'}</span>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            onClick={() => loadWorkspace(group)}
+                            className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition"
+                          >
+                            Open Workspace
+                          </button>
+                          {!isOwner && (
+                            <button
+                              onClick={() => leaveGroup(group.id)}
+                              className="px-3 py-1.5 rounded-lg border border-red-300 dark:border-red-700 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition"
+                            >
+                              Leave
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
 
-        {tab === 'invites' ? (
-          <div className="space-y-3">
-            {myInvites.length === 0 && (
-              <p className="text-sm text-gray-500 dark:text-gray-400">No pending invites.</p>
-            )}
-            {myInvites.map((inv) => (
-              <div key={inv.id} className="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-4 flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-900 dark:text-gray-100">
-                    <span className="font-medium">{inv.inviter_name}</span> invited you to join{' '}
-                    <span className="font-medium">{inv.group_name}</span>
-                  </p>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => handleAcceptInvite(inv.id)}
-                    className="text-xs bg-green-600 text-white px-3 py-1 rounded-lg hover:bg-green-700 transition"
-                  >
-                    Accept
-                  </button>
-                  <button
-                    onClick={() => handleDeclineInvite(inv.id)}
-                    className="text-xs bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-3 py-1 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition"
-                  >
-                    Decline
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {(tab === 'my' ? myGroups : allGroups).map((g) => (
-              <div key={g.id} className="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-4">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-semibold text-gray-900 dark:text-gray-100">{g.name}</h3>
-                      {g.owner_id === user?.id ? (
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-5">
+              <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-4">Pending Invites</h2>
+              {invites.length === 0 ? (
+                <p className="text-sm text-gray-500 dark:text-gray-400">No pending invites.</p>
+              ) : (
+                <div className="space-y-3">
+                  {invites.map((invite) => (
+                    <div key={invite.id} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+                      <h3 className="font-semibold text-gray-900 dark:text-gray-100">{invite.group_name}</h3>
+                      <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">Invited by {invite.inviter_name || 'Unknown'}</p>
+                      <div className="flex gap-2 mt-3">
                         <button
-                          onClick={() => handleToggleJoinMode(g)}
-                          title="Click to toggle join mode"
-                          className={`text-xs px-2 py-0.5 rounded-full cursor-pointer transition ${
-                            g.join_mode === 'approval'
-                              ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300 hover:bg-yellow-200 dark:hover:bg-yellow-800'
-                              : 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-800'
-                          }`}
+                          onClick={() => respondInvite(invite.id, 'accept')}
+                          className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700 transition"
                         >
-                          {g.join_mode === 'approval' ? 'Approval' : 'Open'}
+                          Accept
                         </button>
-                      ) : (
-                        <span className={`text-xs px-2 py-0.5 rounded-full ${
-                          g.join_mode === 'approval'
-                            ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300'
-                            : 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
-                        }`}>
-                          {g.join_mode === 'approval' ? 'Approval' : 'Open'}
-                        </span>
-                      )}
-                    </div>
-                    {g.description && <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{g.description}</p>}
-                    <div className="flex gap-3 text-xs text-gray-400 dark:text-gray-500 mt-2">
-                      <span>Owner: {g.owner_name}</span>
-                      <span>{g.member_count} members</span>
-                    </div>
-                  </div>
-                </div>
-                <div className="flex gap-2 mt-3">
-                  <button
-                    onClick={() => viewMembers(g)}
-                    className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
-                  >
-                    Members
-                  </button>
-                  {myGroupIds.has(g.id) && (
-                    <button
-                      onClick={() => openChat(g)}
-                      className="text-xs text-purple-600 dark:text-purple-400 hover:underline"
-                    >
-                      Chat
-                    </button>
-                  )}
-                  {myGroupIds.has(g.id) && (
-                    <button
-                      onClick={() => openFiles(g)}
-                      className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
-                    >
-                      Files
-                    </button>
-                  )}
-                  {!myGroupIds.has(g.id) && (
-                    <button onClick={() => handleJoin(g)} className="text-xs text-green-600 dark:text-green-400 hover:underline">
-                      {g.join_mode === 'approval' ? 'Request to Join' : 'Join'}
-                    </button>
-                  )}
-                  {myGroupIds.has(g.id) && g.owner_id !== user?.id && (
-                    <button onClick={() => handleLeave(g.id)} className="text-xs text-yellow-600 dark:text-yellow-400 hover:underline">
-                      Leave
-                    </button>
-                  )}
-                  {myGroupIds.has(g.id) && g.owner_id === user?.id && (
-                    <button onClick={() => handleDelete(g.id)} className="text-xs text-red-500 hover:underline">
-                      Delete
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {selectedGroup && (
-          <div className="mt-6 bg-white dark:bg-gray-900 rounded-xl shadow-sm p-4">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-3">
-                <h3 className="font-semibold text-gray-900 dark:text-gray-100">
-                  {selectedGroup.name}
-                </h3>
-                <div className="flex gap-1">
-                  <button
-                    onClick={() => { setGroupPanel('members'); viewMembers(selectedGroup); }}
-                    className={`text-xs px-3 py-1 rounded-lg transition ${
-                      groupPanel === 'members' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'
-                    }`}
-                  >
-                    Members
-                  </button>
-                  {myGroupIds.has(selectedGroup.id) && (
-                    <button
-                      onClick={() => { setGroupPanel('chat'); fetchMessages(selectedGroup.id); }}
-                      className={`text-xs px-3 py-1 rounded-lg transition ${
-                        groupPanel === 'chat' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'
-                      }`}
-                    >
-                      Chat
-                    </button>
-                  )}
-                  {myGroupIds.has(selectedGroup.id) && (
-                    <button
-                      onClick={() => { setGroupPanel('files'); fetchGroupFiles(selectedGroup.id); fetchMyUploads(); }}
-                      className={`text-xs px-3 py-1 rounded-lg transition ${
-                        groupPanel === 'files' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'
-                      }`}
-                    >
-                      Files
-                    </button>
-                  )}
-                </div>
-              </div>
-              <button onClick={() => setSelectedGroup(null)} className="text-xs text-gray-400 hover:text-gray-600">
-                Close
-              </button>
-            </div>
-
-            {groupPanel === 'members' ? (
-              <>
-                <div className="space-y-2 mb-4">
-                  {members.map((m) => (
-                    <div key={m.id} className="flex items-center justify-between text-sm">
-                      <span className="text-gray-700 dark:text-gray-300">{m.username}</span>
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${
-                        m.role === 'owner'
-                          ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300'
-                          : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
-                      }`}>
-                        {m.role}
-                      </span>
+                        <button
+                          onClick={() => respondInvite(invite.id, 'decline')}
+                          className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition"
+                        >
+                          Decline
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
+              )}
+            </div>
 
-                {/* Invite form */}
-                {myGroupIds.has(selectedGroup.id) && (
-                  <form onSubmit={handleInvite} className="flex gap-2 mb-4">
-                    <input
-                      type="text"
-                      value={inviteInput}
-                      onChange={(e) => setInviteInput(e.target.value)}
-                      placeholder="Invite by username or email"
-                      className="flex-1 text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
-                    />
-                    <button type="submit" className="text-sm bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition">
-                      Invite
-                    </button>
-                  </form>
-                )}
-
-                {/* Join requests (owner only) */}
-                {joinRequests.length > 0 && (
-                  <div>
-                    <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      Pending Join Requests
-                    </h4>
-                    <div className="space-y-2">
-                      {joinRequests.map((r) => (
-                        <div key={r.id} className="flex items-center justify-between text-sm bg-yellow-50 dark:bg-yellow-900/20 rounded-lg px-3 py-2">
-                          <span className="text-gray-700 dark:text-gray-300">{r.username}</span>
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => handleApprove(selectedGroup.id, r.id)}
-                              className="text-xs bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700 transition"
-                            >
-                              Approve
-                            </button>
-                            <button
-                              onClick={() => handleReject(selectedGroup.id, r.id)}
-                              className="text-xs bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600 transition"
-                            >
-                              Reject
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </>
-            ) : groupPanel === 'chat' ? (
-              <div>
-                {/* Chat messages */}
-                <div className="h-80 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg p-3 mb-3 space-y-3">
-                  {chatMessages.length === 0 && (
-                    <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-8">No messages yet. Start the conversation!</p>
-                  )}
-                  {chatMessages.map((m) => (
-                    <div key={m.id} className="text-sm">
-                      <div className="flex items-baseline gap-2">
-                        <span className="font-medium text-gray-900 dark:text-gray-100">{m.username}</span>
-                        <span className="text-xs text-gray-400 dark:text-gray-500">
-                          {new Date(m.created_at).toLocaleString()}
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-5">
+              <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-4">Discover Groups</h2>
+              {loading ? (
+                <p className="text-sm text-gray-500 dark:text-gray-400">Loading groups...</p>
+              ) : discoverGroups.length === 0 ? (
+                <p className="text-sm text-gray-500 dark:text-gray-400">No other groups available right now.</p>
+              ) : (
+                <div className="space-y-3">
+                  {discoverGroups.map((group) => (
+                    <div key={group.id} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+                      <div className="flex flex-wrap items-center gap-2 mb-2">
+                        <h3 className="font-semibold text-gray-900 dark:text-gray-100">{group.name}</h3>
+                        <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+                          {group.join_mode === 'approval' ? 'Approval' : 'Open'}
                         </span>
                       </div>
-                      <p className="text-gray-700 dark:text-gray-300 mt-0.5">{m.content}</p>
-                    </div>
-                  ))}
-                  <div ref={chatEndRef} />
-                </div>
-
-                {/* Chat input */}
-                <form onSubmit={handleSendMessage} className="flex gap-2">
-                  <input
-                    type="text"
-                    value={chatInput}
-                    onChange={(e) => setChatInput(e.target.value)}
-                    placeholder="Type a message..."
-                    className="flex-1 text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
-                  />
-                  <button type="submit" className="text-sm bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition">
-                    Send
-                  </button>
-                </form>
-              </div>
-            ) : (
-              <div>
-                {/* Share file form */}
-                <form onSubmit={handleShareFile} className="flex gap-2 mb-4">
-                  <select
-                    value={shareFileId}
-                    onChange={(e) => setShareFileId(e.target.value)}
-                    className="flex-1 text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
-                  >
-                    <option value="">Select a file to share...</option>
-                    {myUploads.map((u) => (
-                      <option key={u.id} value={u.id}>{u.filename} ({u.file_type})</option>
-                    ))}
-                  </select>
-                  <button type="submit" className="text-sm bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition">
-                    Share
-                  </button>
-                </form>
-
-                {/* Shared files list */}
-                <div className="space-y-2">
-                  {groupFiles.length === 0 && (
-                    <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-4">No files shared yet.</p>
-                  )}
-                  {groupFiles.map((f) => (
-                    <div key={f.id} className="flex items-center justify-between text-sm bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
-                      <div>
-                        <span className="text-gray-900 dark:text-gray-100 font-medium">{f.filename}</span>
-                        <span className="ml-2 text-xs text-gray-400">{f.file_type}</span>
-                        <span className="ml-2 text-xs text-gray-400">by {f.owner_name}</span>
+                      {group.description && (
+                        <p className="text-sm text-gray-600 dark:text-gray-300 mb-3">{group.description}</p>
+                      )}
+                      <div className="flex flex-wrap gap-4 text-xs text-gray-500 dark:text-gray-400 mb-3">
+                        <span>{group.member_count} members</span>
+                        <span>Owner: {group.owner_name || 'Unknown'}</span>
                       </div>
                       <button
-                        onClick={() => handleRemoveFile(f.id)}
-                        className="text-xs text-red-500 hover:underline"
+                        onClick={() => joinGroup(group.id)}
+                        className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700 transition"
                       >
-                        Remove
+                        {group.join_mode === 'approval' ? 'Request to Join' : 'Join Group'}
                       </button>
                     </div>
                   ))}
                 </div>
+              )}
+            </div>
+          </section>
+
+          <section className="space-y-6">
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-5">
+              <div className="flex items-center justify-between gap-4 mb-4">
+                <div>
+                  <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+                    {selectedGroup ? selectedGroup.name : 'Group Workspace'}
+                  </h2>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                    {selectedGroup ? (selectedGroup.description || 'Chat, members, and shared files for this group.') : 'Select one of your groups to open its workspace.'}
+                  </p>
+                </div>
+                {selectedGroup && (
+                  <button
+                    onClick={() => loadWorkspace(selectedGroup, false)}
+                    className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition"
+                  >
+                    Refresh Workspace
+                  </button>
+                )}
               </div>
-            )}
-          </div>
-        )}
+
+              {!selectedGroup ? (
+                <p className="text-sm text-gray-500 dark:text-gray-400">Pick a group from the left column.</p>
+              ) : workspaceLoading ? (
+                <p className="text-sm text-gray-500 dark:text-gray-400">Loading workspace...</p>
+              ) : (
+                <div className="space-y-6">
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+                      <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-3">Members</h3>
+                      {members.length === 0 ? (
+                        <p className="text-sm text-gray-500 dark:text-gray-400">No members found.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {members.map((member) => (
+                            <div key={member.id} className="flex items-center justify-between text-sm">
+                              <span className="text-gray-900 dark:text-gray-100">{member.username || `User #${member.user_id}`}</span>
+                              <span className="text-xs text-gray-500 dark:text-gray-400">{member.role}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+                      <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-3">Shared Files</h3>
+                      <div className="flex flex-wrap gap-2 mb-3">
+                        <select
+                          value={selectedUploadId}
+                          onChange={(e) => setSelectedUploadId(e.target.value)}
+                          className="flex-1 min-w-[180px] border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                        >
+                          <option value="">Select one of your completed uploads</option>
+                          {myUploads.map((upload) => (
+                            <option key={upload.id} value={upload.id}>{upload.filename}</option>
+                          ))}
+                        </select>
+                        <button
+                          onClick={shareFileToGroup}
+                          disabled={!selectedUploadId}
+                          className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition"
+                        >
+                          Share File
+                        </button>
+                      </div>
+                      {groupFiles.length === 0 ? (
+                        <p className="text-sm text-gray-500 dark:text-gray-400">No files shared to this group yet.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {groupFiles.map((file) => (
+                            <div key={file.id} className="border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2">
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{file.filename}</p>
+                                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                                    {String(file.file_type || '').toUpperCase()} · Shared by {file.owner_name || 'Unknown'} · {file.permission || 'read'}
+                                  </p>
+                                </div>
+                                <div className="flex items-center gap-3 shrink-0">
+                                  <Link
+                                    to={`/uploads/${file.upload_id}`}
+                                    className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                                  >
+                                    Open Analysis
+                                  </Link>
+                                  {(user?.id === file.shared_by || selectedIsOwner) && (
+                                    <button
+                                      onClick={() => removeGroupFile(file.id)}
+                                      className="text-xs text-red-600 dark:text-red-400 hover:underline"
+                                    >
+                                      Remove
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+                    <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-3">Group Chat</h3>
+                    <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-3 bg-gray-50 dark:bg-gray-950/40 h-[320px] overflow-y-auto space-y-3">
+                      {groupMessages.length === 0 ? (
+                        <p className="text-sm text-gray-500 dark:text-gray-400">No messages yet.</p>
+                      ) : (
+                        groupMessages.map((entry) => (
+                          <div key={entry.id} className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2">
+                            <div className="flex items-center justify-between gap-3 mb-1">
+                              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{entry.username || `User #${entry.user_id}`}</span>
+                              <span className="text-xs text-gray-500 dark:text-gray-400">{new Date(entry.created_at).toLocaleString()}</span>
+                            </div>
+                            <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{entry.content}</p>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                    <form onSubmit={sendGroupMessage} className="flex gap-2 mt-3">
+                      <input
+                        type="text"
+                        value={groupMessage}
+                        onChange={(e) => setGroupMessage(e.target.value)}
+                        placeholder="Send a message to the group"
+                        className="flex-1 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                      />
+                      <button
+                        type="submit"
+                        disabled={!groupMessage.trim()}
+                        className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition"
+                      >
+                        Send
+                      </button>
+                    </form>
+                  </div>
+
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+                      <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-3">Invite Member</h3>
+                      <form onSubmit={inviteToGroup} className="flex gap-2">
+                        <input
+                          type="text"
+                          value={inviteQuery}
+                          onChange={(e) => setInviteQuery(e.target.value)}
+                          placeholder="Username or email"
+                          className="flex-1 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                        />
+                        <button
+                          type="submit"
+                          disabled={!inviteQuery.trim()}
+                          className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 transition"
+                        >
+                          Invite
+                        </button>
+                      </form>
+                    </div>
+
+                    <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+                      <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-3">Join Requests</h3>
+                      {!selectedIsOwner ? (
+                        <p className="text-sm text-gray-500 dark:text-gray-400">Only the group owner can review join requests.</p>
+                      ) : joinRequests.length === 0 ? (
+                        <p className="text-sm text-gray-500 dark:text-gray-400">No pending join requests.</p>
+                      ) : (
+                        <div className="space-y-3">
+                          {joinRequests.map((request) => (
+                            <div key={request.id} className="border border-gray-200 dark:border-gray-700 rounded-lg p-3">
+                              <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{request.username || `User #${request.user_id}`}</p>
+                              <div className="flex gap-2 mt-3">
+                                <button
+                                  onClick={() => respondJoinRequest(request.id, 'approve')}
+                                  className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700 transition"
+                                >
+                                  Approve
+                                </button>
+                                <button
+                                  onClick={() => respondJoinRequest(request.id, 'reject')}
+                                  className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition"
+                                >
+                                  Reject
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </section>
+        </div>
       </main>
     </div>
   );
