@@ -98,83 +98,83 @@ Major runtime components in the current codebase are:
 
 ```mermaid
 graph TB
-    subgraph "客户端层 Client Layer"
+    subgraph ClientLayer["客户端层 Client Layer"]
         User[用户 User]
         Browser[浏览器 Browser]
     end
     
-    subgraph "前端层 Frontend Layer"
-        React[React 18 + Vite]
-        UI[Tailwind CSS + Charts]
-        Router[React Router]
-        AuthCtx[Auth Context]
-        ThemeCtx[Theme Context]
+    subgraph FrontendLayer["前端层 Frontend Layer"]
+        React["React 18 + Vite"]
+        UI["Tailwind CSS + Charts"]
+        Router["React Router"]
+        AuthCtx["Auth Context"]
+        ThemeCtx["Theme Context"]
     end
     
-    subgraph "网关层 Gateway"
-        Nginx[Nginx<br/>Reverse Proxy]
+    subgraph Gateway["网关层 Gateway"]
+        Nginx["Nginx<br/>Reverse Proxy"]
     end
     
-    subgraph "后端服务层 Backend Service Layer"
-        FastAPI[FastAPI 0.115]
+    subgraph BackendLayer["后端服务层 Backend Service Layer"]
+        FastAPI["FastAPI 0.115"]
         
-        subgraph "API Routes"
-            AuthAPI[/api/auth]
-            UploadAPI[/api/uploads]
-            ShareAPI[/api/share]
-            ChatAPI[/api/chat]
-            AdminAPI[/api/admin]
+        subgraph APIRoutes["API Routes"]
+            AuthAPI["api/auth"]
+            UploadAPI["api/uploads"]
+            ShareAPI["api/share"]
+            ChatAPI["api/chat"]
+            AdminAPI["api/admin"]
         end
         
-        subgraph "Security & Core"
-            JWT[JWT Auth]
-            RateLimit[Rate Limiter]
-            Validator[File Validator]
-            Sanitizer[Input Sanitizer]
+        subgraph SecurityCore["Security & Core"]
+            JWT["JWT Auth"]
+            RateLimit["Rate Limiter"]
+            Validator["File Validator"]
+            Sanitizer["Input Sanitizer"]
         end
         
-        subgraph "Business Services"
-            AIService[AI Service]
-            PermService[Permission Service]
-            EmailService[Email Service]
-        end
-    end
-    
-    subgraph "异步处理层 Async Processing"
-        Redis[(Redis 7<br/>Message Broker)]
-        Celery[Celery 5.4 Worker]
-        
-        subgraph "Worker Tasks"
-            Extract[Text Extraction]
-            OCR[OCR Processing]
-            Transcribe[Audio Transcription]
-            Generate[Content Generation]
+        subgraph BusinessServices["Business Services"]
+            AIService["AI Service"]
+            PermService["Permission Service"]
+            EmailService["Email Service"]
         end
     end
     
-    subgraph "数据层 Data Layer"
-        PostgreSQL[(PostgreSQL 16<br/>Database)]
-        FileStorage[File Storage<br/>uploads/]
+    subgraph AsyncLayer["异步处理层 Async Processing"]
+        Redis[("Redis 7<br/>Message Broker")]
+        Celery["Celery 5.4 Worker"]
+        
+        subgraph WorkerTasks["Worker Tasks"]
+            Extract["Text Extraction"]
+            OCR["OCR Processing"]
+            Transcribe["Audio Transcription"]
+            Generate["Content Generation"]
+        end
     end
     
-    subgraph "AI 服务层 AI Services"
-        DeepSeek[DeepSeek API<br/>deepseek-v4-flash]
-        GLM[GLM API Zhipu<br/>Multimodal]
+    subgraph DataLayer["数据层 Data Layer"]
+        PostgreSQL[("PostgreSQL 16<br/>Database")]
+        FileStorage["File Storage<br/>uploads/"]
+    end
+    
+    subgraph AILayer["AI 服务层 AI Services"]
+        DeepSeek["DeepSeek API<br/>deepseek-v4-flash"]
+        GLM["GLM API Zhipu<br/>Multimodal"]
         
-        subgraph "DeepSeek Capabilities"
-            DS1[Summary]
-            DS2[Concepts]
-            DS3[Flashcards]
-            DS4[Knowledge Graph]
-            DS5[Learning Path]
-            DS6[Q&A Chat]
+        subgraph DeepSeekCap["DeepSeek Capabilities"]
+            DS1["Summary"]
+            DS2["Concepts"]
+            DS3["Flashcards"]
+            DS4["Knowledge Graph"]
+            DS5["Learning Path"]
+            DS6["Q&A Chat"]
         end
         
-        subgraph "GLM Capabilities"
-            GLM1[Audio ASR]
-            GLM2[Image OCR]
-            GLM3[PDF OCR]
-            GLM4[Video Analysis]
+        subgraph GLMCap["GLM Capabilities"]
+            GLM1["Audio ASR"]
+            GLM2["Image OCR"]
+            GLM3["PDF OCR"]
+            GLM4["Video Analysis"]
         end
     end
     
