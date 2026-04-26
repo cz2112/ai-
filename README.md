@@ -98,7 +98,7 @@ Major runtime components in the current codebase are:
 
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {
-  'fontSize': '16px',
+  'fontSize': '24px',
   'fontFamily': 'Segoe UI, Arial, sans-serif',
   'textColor': '#111827',
   'primaryTextColor': '#111827',
@@ -107,81 +107,70 @@ Major runtime components in the current codebase are:
   'lineColor': '#475569',
   'edgeLabelBackground': '#ffffff'
 }}}%%
-flowchart LR
-    subgraph Client["Client / 用户侧"]
-        direction TB
-        User["User / 用户<br/>Browser"]
-        Frontend["React + Vite + Tailwind<br/>Dashboard, Upload Detail, Stats,<br/>Shared, Groups, Admin"]
-        ClientState["AuthContext + ThemeContext<br/>Axios API client"]
-        User --> Frontend
-        Frontend --> ClientState
+flowchart TB
+    User["User / 用户"]
+    Frontend["Frontend<br/>React + Vite + Tailwind"]
+    Nginx["Nginx<br/>static frontend + API proxy"]
+    Backend["Backend<br/>FastAPI"]
+
+    User --> Frontend --> Nginx --> Backend
+
+    subgraph BackendModules["Backend modules / 后端模块"]
+        direction LR
+        Routes["Routes<br/>auth | uploads | share | chat | admin"]
+        Security["Security<br/>JWT | rate limit | validation | sanitize"]
+        Services["Services<br/>upload access | AI routing | email"]
     end
 
-    subgraph Edge["Edge / 接入层"]
-        direction TB
-        Nginx["Nginx<br/>static frontend + /api proxy"]
-    end
-
-    subgraph BackendLayer["Backend / FastAPI"]
-        direction TB
-        Backend["FastAPI app<br/>middleware + dependency injection"]
-        Routes["API routes<br/>auth | uploads | share | chat | admin"]
-        Security["Security and validation<br/>JWT | rate limit | file magic | sanitize"]
-        Services["Business services<br/>upload access | AI routing | email"]
-        Backend --> Routes
-        Routes --> Security
-        Routes --> Services
-    end
-
-    subgraph Async["Async pipeline / 异步处理"]
-        direction TB
-        Redis["Redis broker"]
-        Worker["Celery worker<br/>process_upload"]
-        Extract["Extraction tasks<br/>PDF | DOCX | PPTX | image OCR | audio ASR | video"]
-        Generate["Study asset generation<br/>summary | concepts | flashcards"]
-        Redis --> Worker --> Extract --> Generate
+    subgraph Async["Async processing / 异步处理"]
+        direction LR
+        Redis["Redis"]
+        Worker["Celery worker"]
+        Extract["Extract / OCR / ASR / video"]
+        Generate["Summary / concepts / flashcards"]
     end
 
     subgraph Data["Persistence / 数据层"]
-        direction TB
-        DB[("PostgreSQL<br/>users, uploads, courses, shares, comments,<br/>groups, conversations, summaries, concepts, flashcards")]
-        Storage["Upload storage<br/>backend/uploads or /app/uploads"]
+        direction LR
+        DB[("PostgreSQL<br/>users | uploads | courses | sharing | study assets")]
+        Storage["Upload storage<br/>backend/uploads"]
     end
 
     subgraph AI["AI providers / 模型服务"]
-        direction TB
-        DeepSeek["DeepSeek<br/>summary, concepts, flashcards,<br/>Q&A, knowledge graph, learning path"]
-        GLM["GLM<br/>audio ASR, image OCR,<br/>PDF OCR, video analysis"]
+        direction LR
+        DeepSeek["DeepSeek<br/>chat | summary | concepts | flashcards<br/>graph | learning path"]
+        GLM["GLM<br/>audio ASR | image OCR | PDF OCR | video"]
     end
 
-    Frontend -->|HTTPS| Nginx
-    Nginx -->|REST API| Backend
-    Backend -->|read and write metadata| DB
-    Backend -->|store uploaded files| Storage
-    Backend -->|enqueue background jobs| Redis
-    Services -->|text tasks| DeepSeek
-    Worker -->|read files| Storage
-    Worker -->|write status and results| DB
-    Extract -->|multimodal extraction| GLM
-    Generate -->|LLM generation| DeepSeek
+    Backend --> Routes
+    Backend --> Security
+    Backend --> Services
 
-    classDef client fill:#e0f2fe,stroke:#0369a1,stroke-width:1.5px,color:#111827;
-    classDef edge fill:#f3f4f6,stroke:#4b5563,stroke-width:1.5px,color:#111827;
-    classDef backend fill:#dcfce7,stroke:#15803d,stroke-width:1.5px,color:#111827;
-    classDef async fill:#f3e8ff,stroke:#7e22ce,stroke-width:1.5px,color:#111827;
-    classDef data fill:#dbeafe,stroke:#1d4ed8,stroke-width:1.5px,color:#111827;
-    classDef ai fill:#fef3c7,stroke:#b45309,stroke-width:1.5px,color:#111827;
+    Backend --> DB
+    Backend --> Storage
+    Backend --> Redis
+    Redis --> Worker --> Extract --> Generate
+    Worker --> Storage
+    Worker --> DB
+    Extract --> GLM
+    Generate --> DeepSeek
+    Services --> DeepSeek
 
-    class User,Frontend,ClientState client;
+    classDef client fill:#e0f2fe,stroke:#0369a1,stroke-width:1.5px,color:#111827,font-size:22px;
+    classDef edge fill:#f3f4f6,stroke:#4b5563,stroke-width:1.5px,color:#111827,font-size:22px;
+    classDef backend fill:#dcfce7,stroke:#15803d,stroke-width:1.5px,color:#111827,font-size:22px;
+    classDef async fill:#f3e8ff,stroke:#7e22ce,stroke-width:1.5px,color:#111827,font-size:22px;
+    classDef data fill:#dbeafe,stroke:#1d4ed8,stroke-width:1.5px,color:#111827,font-size:22px;
+    classDef ai fill:#fef3c7,stroke:#b45309,stroke-width:1.5px,color:#111827,font-size:22px;
+
+    class User,Frontend client;
     class Nginx edge;
     class Backend,Routes,Security,Services backend;
     class Redis,Worker,Extract,Generate async;
     class DB,Storage data;
     class DeepSeek,GLM ai;
 
-    style Client fill:#f8fafc,stroke:#94a3b8,stroke-width:1px,color:#111827;
-    style Edge fill:#f8fafc,stroke:#94a3b8,stroke-width:1px,color:#111827;
-    style BackendLayer fill:#f8fafc,stroke:#94a3b8,stroke-width:1px,color:#111827;
+    style BackendModules fill:#f8fafc,stroke:#94a3b8,stroke-width:1px,color:#111827;
     style Async fill:#f8fafc,stroke:#94a3b8,stroke-width:1px,color:#111827;
     style Data fill:#f8fafc,stroke:#94a3b8,stroke-width:1px,color:#111827;
     style AI fill:#f8fafc,stroke:#94a3b8,stroke-width:1px,color:#111827;
