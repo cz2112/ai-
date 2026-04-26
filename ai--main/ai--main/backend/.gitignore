@@ -1,0 +1,6 @@
+.env
+__pycache__/
+*.pyc
+uploads/
+*.egg-info/
+smart_study.db
