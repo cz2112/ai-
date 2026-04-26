@@ -97,43 +97,94 @@ Major runtime components in the current codebase are:
 ### Architecture Diagram
 
 ```mermaid
-graph LR
-    User[用户<br/>User] -->|Browser| Frontend[前端层<br/>React + Vite + Tailwind]
-    Frontend -->|HTTPS| Nginx[网关<br/>Nginx]
-    Nginx -->|REST API| Backend[后端层<br/>FastAPI]
-    
-    Backend -->|Auth/Upload/Share/Chat/Admin| API[API Routes<br/>5 modules]
-    Backend -->|JWT/RateLimit/Validate| Security[Security Layer<br/>4 components]
-    Backend -->|AI/Permission/Email| Services[Business Services<br/>3 services]
-    
-    Backend -->|Read/Write| DB[(数据库<br/>PostgreSQL)]
-    Backend -->|Store Files| Storage[文件存储<br/>uploads/]
-    Backend -->|Enqueue Tasks| Redis[(消息队列<br/>Redis)]
-    
-    Redis -->|Consume| Worker[异步处理<br/>Celery Worker]
-    Worker -->|Extract/OCR/Transcribe/Generate| Tasks[Worker Tasks<br/>4 task types]
-    Worker -->|CRUD| DB
-    Worker -->|Read Files| Storage
-    
-    Backend -->|Text Generation| DeepSeek[DeepSeek API<br/>Summary/Concepts/Flashcards<br/>Knowledge Graph/Learning Path/Q&A]
-    Worker -->|Content Generation| DeepSeek
-    
-    Worker -->|Media Processing| GLM[GLM API Zhipu<br/>Audio ASR/Image OCR<br/>PDF OCR/Video Analysis]
-    
-    style User fill:#e1f5ff,stroke:#333,stroke-width:2px
-    style Frontend fill:#fff4e1,stroke:#333,stroke-width:2px
-    style Nginx fill:#f0f0f0,stroke:#333,stroke-width:2px
-    style Backend fill:#e8f5e9,stroke:#333,stroke-width:2px
-    style Redis fill:#ffebee,stroke:#333,stroke-width:2px
-    style Worker fill:#f3e5f5,stroke:#333,stroke-width:2px
-    style DB fill:#e3f2fd,stroke:#333,stroke-width:2px
-    style Storage fill:#e3f2fd,stroke:#333,stroke-width:2px
-    style DeepSeek fill:#fff3e0,stroke:#333,stroke-width:2px
-    style GLM fill:#fff3e0,stroke:#333,stroke-width:2px
-    style API fill:#c8e6c9,stroke:#333,stroke-width:1px
-    style Security fill:#ffccbc,stroke:#333,stroke-width:1px
-    style Services fill:#b2dfdb,stroke:#333,stroke-width:1px
-    style Tasks fill:#e1bee7,stroke:#333,stroke-width:1px
+%%{init: {'theme': 'base', 'themeVariables': {
+  'fontSize': '16px',
+  'fontFamily': 'Segoe UI, Arial, sans-serif',
+  'textColor': '#111827',
+  'primaryTextColor': '#111827',
+  'secondaryTextColor': '#111827',
+  'tertiaryTextColor': '#111827',
+  'lineColor': '#475569',
+  'edgeLabelBackground': '#ffffff'
+}}}%%
+flowchart LR
+    subgraph Client["Client / 用户侧"]
+        direction TB
+        User["User / 用户<br/>Browser"]
+        Frontend["React + Vite + Tailwind<br/>Dashboard, Upload Detail, Stats,<br/>Shared, Groups, Admin"]
+        ClientState["AuthContext + ThemeContext<br/>Axios API client"]
+        User --> Frontend
+        Frontend --> ClientState
+    end
+
+    subgraph Edge["Edge / 接入层"]
+        direction TB
+        Nginx["Nginx<br/>static frontend + /api proxy"]
+    end
+
+    subgraph BackendLayer["Backend / FastAPI"]
+        direction TB
+        Backend["FastAPI app<br/>middleware + dependency injection"]
+        Routes["API routes<br/>auth | uploads | share | chat | admin"]
+        Security["Security and validation<br/>JWT | rate limit | file magic | sanitize"]
+        Services["Business services<br/>upload access | AI routing | email"]
+        Backend --> Routes
+        Routes --> Security
+        Routes --> Services
+    end
+
+    subgraph Async["Async pipeline / 异步处理"]
+        direction TB
+        Redis["Redis broker"]
+        Worker["Celery worker<br/>process_upload"]
+        Extract["Extraction tasks<br/>PDF | DOCX | PPTX | image OCR | audio ASR | video"]
+        Generate["Study asset generation<br/>summary | concepts | flashcards"]
+        Redis --> Worker --> Extract --> Generate
+    end
+
+    subgraph Data["Persistence / 数据层"]
+        direction TB
+        DB[("PostgreSQL<br/>users, uploads, courses, shares, comments,<br/>groups, conversations, summaries, concepts, flashcards")]
+        Storage["Upload storage<br/>backend/uploads or /app/uploads"]
+    end
+
+    subgraph AI["AI providers / 模型服务"]
+        direction TB
+        DeepSeek["DeepSeek<br/>summary, concepts, flashcards,<br/>Q&A, knowledge graph, learning path"]
+        GLM["GLM<br/>audio ASR, image OCR,<br/>PDF OCR, video analysis"]
+    end
+
+    Frontend -->|HTTPS| Nginx
+    Nginx -->|REST API| Backend
+    Backend -->|read and write metadata| DB
+    Backend -->|store uploaded files| Storage
+    Backend -->|enqueue background jobs| Redis
+    Services -->|text tasks| DeepSeek
+    Worker -->|read files| Storage
+    Worker -->|write status and results| DB
+    Extract -->|multimodal extraction| GLM
+    Generate -->|LLM generation| DeepSeek
+
+    classDef client fill:#e0f2fe,stroke:#0369a1,stroke-width:1.5px,color:#111827;
+    classDef edge fill:#f3f4f6,stroke:#4b5563,stroke-width:1.5px,color:#111827;
+    classDef backend fill:#dcfce7,stroke:#15803d,stroke-width:1.5px,color:#111827;
+    classDef async fill:#f3e8ff,stroke:#7e22ce,stroke-width:1.5px,color:#111827;
+    classDef data fill:#dbeafe,stroke:#1d4ed8,stroke-width:1.5px,color:#111827;
+    classDef ai fill:#fef3c7,stroke:#b45309,stroke-width:1.5px,color:#111827;
+
+    class User,Frontend,ClientState client;
+    class Nginx edge;
+    class Backend,Routes,Security,Services backend;
+    class Redis,Worker,Extract,Generate async;
+    class DB,Storage data;
+    class DeepSeek,GLM ai;
+
+    style Client fill:#f8fafc,stroke:#94a3b8,stroke-width:1px,color:#111827;
+    style Edge fill:#f8fafc,stroke:#94a3b8,stroke-width:1px,color:#111827;
+    style BackendLayer fill:#f8fafc,stroke:#94a3b8,stroke-width:1px,color:#111827;
+    style Async fill:#f8fafc,stroke:#94a3b8,stroke-width:1px,color:#111827;
+    style Data fill:#f8fafc,stroke:#94a3b8,stroke-width:1px,color:#111827;
+    style AI fill:#f8fafc,stroke:#94a3b8,stroke-width:1px,color:#111827;
 ```
 
 **Architecture Layers:**
