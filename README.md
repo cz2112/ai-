@@ -97,152 +97,56 @@ Major runtime components in the current codebase are:
 ### Architecture Diagram
 
 ```mermaid
-graph TB
-    subgraph ClientLayer["客户端层 Client Layer"]
-        User[用户 User]
-        Browser[浏览器 Browser]
-    end
+graph LR
+    User[用户<br/>User] -->|Browser| Frontend[前端层<br/>React + Vite + Tailwind]
+    Frontend -->|HTTPS| Nginx[网关<br/>Nginx]
+    Nginx -->|REST API| Backend[后端层<br/>FastAPI]
     
-    subgraph FrontendLayer["前端层 Frontend Layer"]
-        React["React 18 + Vite"]
-        UI["Tailwind CSS + Charts"]
-        Router["React Router"]
-        AuthCtx["Auth Context"]
-        ThemeCtx["Theme Context"]
-    end
+    Backend -->|Auth/Upload/Share/Chat/Admin| API[API Routes<br/>5 modules]
+    Backend -->|JWT/RateLimit/Validate| Security[Security Layer<br/>4 components]
+    Backend -->|AI/Permission/Email| Services[Business Services<br/>3 services]
     
-    subgraph Gateway["网关层 Gateway"]
-        Nginx["Nginx<br/>Reverse Proxy"]
-    end
+    Backend -->|Read/Write| DB[(数据库<br/>PostgreSQL)]
+    Backend -->|Store Files| Storage[文件存储<br/>uploads/]
+    Backend -->|Enqueue Tasks| Redis[(消息队列<br/>Redis)]
     
-    subgraph BackendLayer["后端服务层 Backend Service Layer"]
-        FastAPI["FastAPI 0.115"]
-        
-        subgraph APIRoutes["API Routes"]
-            AuthAPI["api/auth"]
-            UploadAPI["api/uploads"]
-            ShareAPI["api/share"]
-            ChatAPI["api/chat"]
-            AdminAPI["api/admin"]
-        end
-        
-        subgraph SecurityCore["Security & Core"]
-            JWT["JWT Auth"]
-            RateLimit["Rate Limiter"]
-            Validator["File Validator"]
-            Sanitizer["Input Sanitizer"]
-        end
-        
-        subgraph BusinessServices["Business Services"]
-            AIService["AI Service"]
-            PermService["Permission Service"]
-            EmailService["Email Service"]
-        end
-    end
+    Redis -->|Consume| Worker[异步处理<br/>Celery Worker]
+    Worker -->|Extract/OCR/Transcribe/Generate| Tasks[Worker Tasks<br/>4 task types]
+    Worker -->|CRUD| DB
+    Worker -->|Read Files| Storage
     
-    subgraph AsyncLayer["异步处理层 Async Processing"]
-        Redis[("Redis 7<br/>Message Broker")]
-        Celery["Celery 5.4 Worker"]
-        
-        subgraph WorkerTasks["Worker Tasks"]
-            Extract["Text Extraction"]
-            OCR["OCR Processing"]
-            Transcribe["Audio Transcription"]
-            Generate["Content Generation"]
-        end
-    end
+    Backend -->|Text Generation| DeepSeek[DeepSeek API<br/>Summary/Concepts/Flashcards<br/>Knowledge Graph/Learning Path/Q&A]
+    Worker -->|Content Generation| DeepSeek
     
-    subgraph DataLayer["数据层 Data Layer"]
-        PostgreSQL[("PostgreSQL 16<br/>Database")]
-        FileStorage["File Storage<br/>uploads/"]
-    end
+    Worker -->|Media Processing| GLM[GLM API Zhipu<br/>Audio ASR/Image OCR<br/>PDF OCR/Video Analysis]
     
-    subgraph AILayer["AI 服务层 AI Services"]
-        DeepSeek["DeepSeek API<br/>deepseek-v4-flash"]
-        GLM["GLM API Zhipu<br/>Multimodal"]
-        
-        subgraph DeepSeekCap["DeepSeek Capabilities"]
-            DS1["Summary"]
-            DS2["Concepts"]
-            DS3["Flashcards"]
-            DS4["Knowledge Graph"]
-            DS5["Learning Path"]
-            DS6["Q&A Chat"]
-        end
-        
-        subgraph GLMCap["GLM Capabilities"]
-            GLM1["Audio ASR"]
-            GLM2["Image OCR"]
-            GLM3["PDF OCR"]
-            GLM4["Video Analysis"]
-        end
-    end
-    
-    User --> Browser
-    Browser --> React
-    React --> UI
-    React --> Router
-    React --> AuthCtx
-    React --> ThemeCtx
-    
-    React -->|HTTPS| Nginx
-    Nginx -->|REST API| FastAPI
-    
-    FastAPI --> AuthAPI
-    FastAPI --> UploadAPI
-    FastAPI --> ShareAPI
-    FastAPI --> ChatAPI
-    FastAPI --> AdminAPI
-    
-    FastAPI --> JWT
-    FastAPI --> RateLimit
-    FastAPI --> Validator
-    FastAPI --> Sanitizer
-    
-    FastAPI --> AIService
-    FastAPI --> PermService
-    FastAPI --> EmailService
-    
-    FastAPI -->|Read/Write| PostgreSQL
-    FastAPI -->|Store Files| FileStorage
-    FastAPI -->|Enqueue| Redis
-    
-    Redis -->|Consume| Celery
-    Celery --> Extract
-    Celery --> OCR
-    Celery --> Transcribe
-    Celery --> Generate
-    
-    Celery -->|CRUD| PostgreSQL
-    Celery -->|Read Files| FileStorage
-    
-    AIService -->|Text Tasks| DeepSeek
-    Celery -->|Generate| DeepSeek
-    DeepSeek --> DS1
-    DeepSeek --> DS2
-    DeepSeek --> DS3
-    DeepSeek --> DS4
-    DeepSeek --> DS5
-    DeepSeek --> DS6
-    
-    Celery -->|Media Tasks| GLM
-    GLM --> GLM1
-    GLM --> GLM2
-    GLM --> GLM3
-    GLM --> GLM4
-    
-    style User fill:#e1f5ff
-    style Browser fill:#e1f5ff
-    style React fill:#fff4e1
-    style Nginx fill:#f0f0f0
-    style FastAPI fill:#e8f5e9
-    style Redis fill:#ffebee
-    style Celery fill:#f3e5f5
-    style PostgreSQL fill:#e3f2fd
-    style FileStorage fill:#e3f2fd
-    style DeepSeek fill:#fff3e0
-    style GLM fill:#fff3e0
+    style User fill:#e1f5ff,stroke:#333,stroke-width:2px
+    style Frontend fill:#fff4e1,stroke:#333,stroke-width:2px
+    style Nginx fill:#f0f0f0,stroke:#333,stroke-width:2px
+    style Backend fill:#e8f5e9,stroke:#333,stroke-width:2px
+    style Redis fill:#ffebee,stroke:#333,stroke-width:2px
+    style Worker fill:#f3e5f5,stroke:#333,stroke-width:2px
+    style DB fill:#e3f2fd,stroke:#333,stroke-width:2px
+    style Storage fill:#e3f2fd,stroke:#333,stroke-width:2px
+    style DeepSeek fill:#fff3e0,stroke:#333,stroke-width:2px
+    style GLM fill:#fff3e0,stroke:#333,stroke-width:2px
+    style API fill:#c8e6c9,stroke:#333,stroke-width:1px
+    style Security fill:#ffccbc,stroke:#333,stroke-width:1px
+    style Services fill:#b2dfdb,stroke:#333,stroke-width:1px
+    style Tasks fill:#e1bee7,stroke:#333,stroke-width:1px
 ```
+
+**Architecture Layers:**
+
+| Layer | Components | Description |
+|-------|-----------|-------------|
+| **Client** | User + Browser | Web browser interface |
+| **Frontend** | React 18 + Vite + Tailwind + Router + Contexts | Single-page application with authentication and theming |
+| **Gateway** | Nginx | Reverse proxy for production deployment |
+| **Backend** | FastAPI 0.115 | REST API server with 5 route modules, 4 security components, 3 business services |
+| **Async Processing** | Redis + Celery Worker | Message queue and background task processing (4 task types) |
+| **Data** | PostgreSQL 16 + File Storage | Relational database and file system storage |
+| **AI Services** | DeepSeek + GLM | Text generation (6 capabilities) and multimodal processing (4 capabilities) |
 
 ### Processing Flow
 
